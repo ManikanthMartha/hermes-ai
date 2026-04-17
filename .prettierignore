@@ -1,0 +1,22 @@
+# Everything already ignored by git
+node_modules/
+dist/
+.next/
+build/
+out/
+.turbo/
+
+# Generated code
+packages/shared/src/generated/
+pnpm-lock.yaml
+*.tsbuildinfo
+
+# Managed by Prisma
+prisma/migrations/
+
+# Markdown prose — let the author format
+*.md
+PLAN.md
+
+# Python
+eval/
