@@ -1,0 +1,93 @@
+// Prisma schema — see prisma.config.ts for datasource URL.
+// Generated client lives in packages/shared/src/generated/prisma
+// so @hermes/shared can re-export it cleanly.
+
+generator client {
+  provider             = "prisma-client"
+  output               = "../packages/shared/src/generated/prisma"
+  runtime              = "nodejs"
+  moduleFormat         = "esm"
+  importFileExtension  = "js"
+  previewFeatures      = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+model Memory {
+  id         String                       @id @default(uuid()) @db.Uuid
+  content    String
+  source     String?                      @db.VarChar(50)
+  category   String?                      @db.VarChar(50)
+  metadata   Json                         @default("{}")
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                     @default(now()) @map("created_at")
+  updatedAt  DateTime                     @updatedAt       @map("updated_at")
+
+  @@index([category])
+  @@map("memories")
+}
+
+model Document {
+  id          String          @id @default(uuid()) @db.Uuid
+  title       String?
+  sourceUrl   String?         @map("source_url")
+  contentType String?         @db.VarChar(20) @map("content_type")
+  chunkCount  Int             @default(0) @map("chunk_count")
+  chunks      DocumentChunk[]
+  ingestedAt  DateTime        @default(now()) @map("ingested_at")
+
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id         String                       @id @default(uuid()) @db.Uuid
+  documentId String                       @db.Uuid @map("document_id")
+  document   Document                     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String
+  chunkIndex Int                          @map("chunk_index")
+  metadata   Json                         @default("{}")
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                     @default(now()) @map("created_at")
+
+  @@map("document_chunks")
+}
+
+model Conversation {
+  id        String    @id @default(uuid()) @db.Uuid
+  title     String?
+  messages  Message[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt       @map("updated_at")
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String       @db.VarChar(20)
+  content        String
+  toolCalls      Json?        @map("tool_calls")
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+model Event {
+  id        String   @id @default(uuid()) @db.Uuid
+  source    String   @db.VarChar(50)
+  eventType String   @db.VarChar(100) @map("event_type")
+  payload   Json
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([source, eventType])
+  @@index([processed])
+  @@map("events")
+}

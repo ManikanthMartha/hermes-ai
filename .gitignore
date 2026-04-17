@@ -1,0 +1,65 @@
+# ─── Dependencies (pnpm hoists to per-package node_modules) ───────────────
+node_modules/
+.pnpm-store/
+
+# ─── Build output ─────────────────────────────────────────────────────────
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+
+# ─── Turborepo ────────────────────────────────────────────────────────────
+.turbo/
+
+# ─── Env files (template lives at .env.example) ──────────────────────────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+!.env.example
+
+# ─── Prisma (client generated on every `pnpm db:generate`) ───────────────
+packages/shared/src/generated/
+prisma/*.db
+prisma/*.db-journal
+
+# ─── Logs ────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─── IDE / editor ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── Claude Code local settings (user-specific, never committed) ─────────
+.claude/settings.local.json
+
+# ─── OS ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Python (eval/ Phase 5) ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─── Misc ────────────────────────────────────────────────────────────────
+coverage/
+*.tgz
+.cache/
