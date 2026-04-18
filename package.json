@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Multi-agent AI operations platform",
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "turbo dev --filter=@hermes/web --filter=@hermes/agent-runtime",
     "build": "turbo build",
     "lint": "turbo lint",
     "type-check": "turbo type-check",
@@ -12,7 +12,9 @@
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dev:all": "turbo dev",
+    "dev:mcp": "turbo dev --filter='@hermes/mcp-*'"
   },
   "keywords": [],
   "author": "",

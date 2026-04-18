@@ -46,6 +46,264 @@
 
 ---
 
+## Core Architecture Decisions (Read This Before Coding)
+
+These are the 4 non-obvious decisions that confuse every first-time AI engineer. Burn them into memory now so you don't waste time re-debating them.
+
+### Decision 1: The 3-Layer Agent Framework Stack (LangChain vs LangGraph vs Deep Agents)
+
+Think of it as a stack. Each layer is built on the one below:
+
+```
+┌──────────────────────────────────────────────┐
+│              DEEP AGENTS                      │  "Batteries included"
+│   Planning tool, virtual filesystem,          │   Long-horizon autonomous work
+│   subagent spawning, battle-tested prompts   │   (Claude Code, OpenAI Deep Research)
+└──────────────────────────────────────────────┘
+                    ▼ built on
+┌──────────────────────────────────────────────┐
+│              LANGGRAPH                        │  "Low-level orchestration"
+│   State machines, nodes, edges, routing,      │   Multi-agent systems with
+│   checkpointing, human-in-the-loop            │   branching and human gates
+└──────────────────────────────────────────────┘
+                    ▼ built on
+┌──────────────────────────────────────────────┐
+│              LANGCHAIN                        │  "Primitives & utilities"
+│   LLM wrappers, prompts, retrievers,          │   Simple single-agent RAG,
+│   document loaders, basic ReAct agents        │   chat with docs
+└──────────────────────────────────────────────┘
+```
+
+**Decision rule for Hermes:**
+
+| Use Case | Pick | Why |
+|----------|------|-----|
+| Simple RAG chain, one-shot LLM calls | **LangChain** (or just Vercel AI SDK) | No orchestration needed |
+| **Multi-agent Hermes core (Herald + specialists)** | **LangGraph** ◄── **This is where Hermes lives** | Supervisor pattern, human-in-the-loop, checkpointing |
+| **Long-horizon research agent (Chronos, Phase 11)** | **Deep Agents JS** | Planning tool, filesystem, subagents for multi-hour autonomous tasks |
+
+**Real-world examples of each:**
+- **LangChain only**: "Chat with your PDFs" app — upload, chunk, embed, retrieve, answer. Zero orchestration.
+- **LangGraph**: Hermes's Herald → Iris → Hephaestus flow with confirmation dialogs for writes.
+- **Deep Agents**: Claude Code (writes/edits files in a workspace, spawns subagents), OpenAI Deep Research (runs for minutes, reads dozens of sources, writes a report).
+
+**The golden rule:** Don't pick one framework for everything. Hermes uses **LangGraph as the primary orchestrator**, with **Deep Agents for the Chronos research agent** (Phase 11), and **LangChain primitives inside nodes** when needed.
+
+---
+
+### Decision 2: How Agents Are Picked (LLM-Based Routing)
+
+**The short answer:** An LLM decides. You don't hardcode `if query contains "Slack" → use Iris`.
+
+**Why LLM routing beats rule-based routing:**
+- "What's broken in production?" has no keywords but obviously needs Argus (Sentry)
+- "Let the team know deploy succeeded" — "team" doesn't map to any rule
+- "Why are our numbers bad this week?" is vague; could need Metis or Atlas
+
+LLMs are surprisingly good classifiers when given clear agent descriptions.
+
+**The Herald pattern (supervisor routing):**
+
+```
+USER QUERY
+    │
+    ▼
+┌──────────────────────────────────────────────────┐
+│  HERALD (LangGraph supervisor node)               │
+│                                                   │
+│  Sends to LLM (Haiku — cheap & fast):            │
+│    System: "You route queries to these agents:    │
+│      IRIS (Slack, Gmail, Calendar)                │
+│      HEPHAESTUS (GitHub, Linear)                  │
+│      ATLAS (database queries)                     │
+│      ARGUS (Sentry, ops)                          │
+│      METIS (PostHog analytics)                    │
+│      CHRONOS (use ONLY for 'research'/'deep dive')│
+│    Output JSON: {agents:[], plan:[], reason:''}"  │
+│    User: [the actual query]                       │
+│                                                   │
+│  LLM responds with structured output (Zod-valid): │
+│    { agents: ["hephaestus", "iris"],             │
+│      plan: [                                      │
+│        {agent:"hephaestus", task:"summarize PRs"},│
+│        {agent:"iris", task:"post to #eng"}       │
+│      ] }                                          │
+└──────────────────┬───────────────────────────────┘
+                   │
+         LangGraph conditional edge
+                   │
+       ┌───────────┴───────────┐
+       ▼                       ▼
+    HEPHAESTUS              IRIS
+    (runs first)     (runs after hephaestus,
+                      may interrupt for human
+                      approval before posting)
+```
+
+**When does Chronos (Deep Agent) get picked?**
+
+Herald uses **query shape**, not just keywords:
+
+| Triggers Chronos | Triggers Specialists Directly |
+|------------------|------------------------------|
+| "Investigate why retention dropped" | "What's my DAU this week?" (→ Metis) |
+| "Research the root cause of the Sentry spike" | "List today's errors" (→ Argus) |
+| "Deep dive on churned users" | "Post to #general" (→ Iris) |
+| Query requires 3+ data sources + hypothesis testing | Single-tool lookups |
+| "Analyze...", "report on...", "figure out why..." | Quick factual queries |
+
+**Common routing mistakes to avoid:**
+
+| Mistake | Consequence |
+|---------|-------------|
+| Hardcoded `if/else` routing | Breaks on any natural-language query |
+| One god agent with all tools | LLM gets confused, picks wrong tools, costs more |
+| Herald picks only one agent per query | Fails on multi-step queries ("do X AND THEN Y") |
+| Specialists calling other specialists | Infinite loops. **Only Herald orchestrates.** |
+| Using Opus for Herald routing | Wastes money. Routing is classification — use Haiku. |
+
+---
+
+### Decision 3: LLM Provider Layer (Which SDK to Call)
+
+There are 5 ways to call an LLM. From lowest to highest abstraction:
+
+```
+Level 5: AI Gateways (Vercel AI Gateway, OpenRouter, Portkey)
+         "Runtime provider switching, fallbacks, unified billing"
+Level 4: Vercel AI SDK (ai + @ai-sdk/anthropic)
+         "Unified interface across providers, best DX"
+Level 3: LangChain Providers (@langchain/anthropic)
+         "LangChain's abstraction, native LangGraph compat"
+Level 2: Official Provider SDKs (@anthropic-ai/sdk)
+         "Vendor-locked, typed client"
+Level 1: Raw HTTP
+         "Never do this"
+```
+
+**Production standard in 2026 is a hybrid:**
+- **Vercel AI SDK** for one-shot LLM calls (classification, summarization, structured output, frontend streaming)
+- **LangChain providers** (`@langchain/anthropic`) for agent nodes inside LangGraph graphs
+- **Skip AI Gateway until Phase 10+** — unnecessary layer for personal/single-tenant project
+
+**The Hermes LLM layer** (`packages/shared/src/llm.ts`):
+
+```typescript
+// For Vercel AI SDK calls (one-shot generation, frontend streaming)
+import { anthropic } from '@ai-sdk/anthropic'
+import { openai } from '@ai-sdk/openai'
+
+export const models = {
+  fast: anthropic('claude-haiku-4-5'),       // Herald routing, classification
+  standard: anthropic('claude-sonnet-4-5'),  // Most agent work
+  deep: anthropic('claude-opus-4-7'),        // Complex reasoning, Chronos
+}
+
+// For LangGraph agent nodes (Hermes specialists use these)
+import { ChatAnthropic } from '@langchain/anthropic'
+
+export const chatModels = {
+  fast: new ChatAnthropic({ model: 'claude-haiku-4-5' }),
+  standard: new ChatAnthropic({ model: 'claude-sonnet-4-5' }),
+  deep: new ChatAnthropic({ model: 'claude-opus-4-7' }),
+}
+
+// Embeddings — OpenAI is industry standard, Claude doesn't do embeddings
+export const embedModel = openai.embedding('text-embedding-3-small')
+```
+
+**Usage rules:**
+
+| Where | Which SDK | Why |
+|-------|-----------|-----|
+| Frontend chat streaming | Vercel AI SDK `useChat` hook | Best React streaming UX |
+| Herald routing (classification) | Vercel AI SDK `generateObject` | One-shot + Zod structured output |
+| Memory extraction (LLM → facts) | Vercel AI SDK `generateObject` | One-shot + structured output |
+| Summarization, reranking | Vercel AI SDK `generateText` | One-shot, fast |
+| **Specialist agent tool-loops (Iris, Hephaestus, etc.)** | **LangGraph + `@langchain/anthropic`** | Multi-step, stateful, checkpointed |
+| Chronos (Phase 11) | Deep Agents JS + `@langchain/anthropic` | Built on LangGraph, long-horizon |
+| Embeddings for pgvector | Vercel AI SDK `@ai-sdk/openai` | `embed`, `embedMany` are clean |
+| MCP servers | Provider SDK directly OR Vercel AI SDK | MCP servers are simple — either works |
+
+**The one-line mental model:**
+
+> **Vercel AI SDK for talking to LLMs. LangGraph for orchestrating agents. Deep Agents for long-horizon autonomous work. Everything else is noise.**
+
+---
+
+### Decision 4: Frontend vs Backend Split (The Vercel Trap)
+
+**Vercel is for the FRONTEND. Railway is for the BACKEND. Do not put the agent-runtime on Vercel.**
+
+**Why:**
+
+| Limit | Vercel Hobby | Vercel Pro | Railway |
+|-------|-------------|-----------|---------|
+| Function max duration | 60s | 300s | **Unlimited** |
+| WebSocket support | ❌ | ❌ | ✅ |
+| Long-lived connections | ❌ | ❌ | ✅ |
+| Background jobs / consumers | ❌ | ❌ | ✅ |
+
+**What breaks on Vercel for an AI agent system:**
+- Multi-agent query takes 30-60s → Vercel times out mid-stream, user sees half-written response
+- WebSocket for real-time event notifications (Phase 7) → silently doesn't work
+- Redis Streams consumer for proactive agents → no always-on process to run it
+- Inngest function handlers → need a persistent app server
+
+**The correct deployment:**
+
+```
+┌──────────────────────────────┐
+│           VERCEL              │
+│   Next.js Frontend            │
+│   - Chat UI, dashboard        │
+│   - Thin proxy routes that    │
+│     pass requests to Railway  │
+│   - NO agent logic here       │
+└──────────────┬────────────────┘
+               │ HTTPS stream passthrough
+               │ WebSocket connection
+               ▼
+┌──────────────────────────────┐
+│      RAILWAY (or Fly.io)      │
+│   Agent Runtime (Node.js)     │
+│   - Always-on process         │
+│   - No timeout limits         │
+│   - LangGraph orchestration   │
+│   - MCP clients               │
+│   - Redis Streams consumers   │
+│   - WebSocket server          │
+└──────────────────────────────┘
+```
+
+**Benefits of this split for a data-intensive app:**
+- Prisma connection pool to Neon stays warm (no cold start)
+- Upstash ioredis TCP connection stays open (sub-ms reads)
+- LangGraph agent state stays in memory during execution
+- MCP clients stay connected (no reconnect per query)
+- Streaming works end-to-end without timeout drops
+
+**Cost reality:**
+
+```
+Month 1 (free tier):
+  Vercel Hobby:  $0  (frontend)
+  Railway:       $0  (first $5 credit)
+  Neon Free:     $0  (512MB)
+  Upstash Free:  $0  (10K cmds/day)
+  Inngest Free:  $0  (25K events/mo)
+  Total:         $0/month
+
+Month 6 with real usage:
+  Vercel Hobby:  $0
+  Railway:       $5-10  (small Node.js instance)
+  Neon Free:     $0     (still under 512MB)
+  Upstash Free:  $0
+  Total:         $5-10/month
+```
+
+---
+
 ## Architecture Overview
 
 ```
@@ -730,6 +988,121 @@
 
 ---
 
+### Phase 0.4.5: LLM Provider Layer (Day 3, ~1 hour)
+
+**What:** Create a single place in the monorepo that defines which LLM provider and model to use for every purpose. Every other package imports from here. If you decide tomorrow to swap Haiku for GPT-5 Nano, you change one file.
+
+This is the **most important abstraction in the entire project** for long-term maintainability. Do it now, before writing any agent code.
+
+**Tasks:**
+
+- **Install LLM SDK dependencies in `packages/shared`**
+  ```bash
+  cd packages/shared
+  pnpm add ai @ai-sdk/anthropic @ai-sdk/openai
+  pnpm add @langchain/core @langchain/anthropic
+  ```
+  - `ai` + `@ai-sdk/*` = Vercel AI SDK (for one-shot generation + frontend streaming)
+  - `@langchain/*` = LangChain providers (for agent nodes inside LangGraph)
+
+- **Create `packages/shared/src/llm.ts`** — the single source of truth for all LLM choices
+  ```typescript
+  import { anthropic } from '@ai-sdk/anthropic'
+  import { openai } from '@ai-sdk/openai'
+  import { ChatAnthropic } from '@langchain/anthropic'
+
+  // ─── Vercel AI SDK models (for one-shot generation, frontend streaming) ───
+  // Use these for: Herald routing, memory extraction, summarization,
+  // classification, structured output with Zod, frontend useChat hook.
+  export const models = {
+    fast: anthropic('claude-haiku-4-5'),       // ~$0.001/query — routing, classification
+    standard: anthropic('claude-sonnet-4-5'),  // ~$0.01/query  — most agent work
+    deep: anthropic('claude-opus-4-7'),        // ~$0.05/query  — Chronos, complex reasoning
+  } as const
+
+  // ─── LangChain chat models (for agent nodes inside LangGraph) ───
+  // Use these ONLY inside LangGraph node functions — they implement
+  // BaseChatModel which LangGraph's bindTools/invoke/stream expect.
+  export const chatModels = {
+    fast: new ChatAnthropic({ model: 'claude-haiku-4-5', temperature: 0 }),
+    standard: new ChatAnthropic({ model: 'claude-sonnet-4-5', temperature: 0 }),
+    deep: new ChatAnthropic({ model: 'claude-opus-4-7', temperature: 0 }),
+  } as const
+
+  // ─── Embeddings (pgvector storage) ───
+  // Claude doesn't do embeddings. OpenAI's text-embedding-3-small is the
+  // production standard — 1536 dims, good quality, cheap ($0.02/1M tokens).
+  export const embedModel = openai.embedding('text-embedding-3-small')
+
+  // ─── Type exports for consumers ───
+  export type ModelTier = keyof typeof models
+  ```
+
+- **Create a usage guide document** — `packages/shared/src/llm.README.md`
+  ```markdown
+  # LLM Provider Usage Guide
+
+  ## Decision Rules
+
+  | Situation | Import | Function |
+  |-----------|--------|----------|
+  | One-shot LLM call (classify, summarize) | `models` | `generateText()` or `generateObject()` |
+  | Frontend chat streaming | `models` | `streamText()` or `useChat()` hook |
+  | LangGraph agent node (tool-calling loop) | `chatModels` | `chatModels.standard.bindTools([...])` |
+  | Computing embeddings for pgvector | `embedModel` | `embed({ model: embedModel, value: '...' })` |
+
+  ## Model Tier Rules
+
+  - `fast` (Haiku) — Herald routing, cache-key generation, simple classification
+  - `standard` (Sonnet) — default for all specialist agents (Iris, Hephaestus, etc.)
+  - `deep` (Opus) — Chronos deep research, complex multi-hop reasoning, critical write actions
+
+  Never hardcode model names elsewhere in the codebase. Always import from `@hermes/shared/llm`.
+  ```
+
+- **Test the layer with a 10-line smoke test** in the agent-runtime
+  ```typescript
+  // apps/agent-runtime/src/smoke-test.ts
+  import { generateText } from 'ai'
+  import { models } from '@hermes/shared/llm'
+
+  const { text } = await generateText({
+    model: models.fast,
+    prompt: 'Say "Hermes LLM layer is working" and nothing else.',
+  })
+  console.log(text)
+  ```
+  Run with: `pnpm tsx src/smoke-test.ts` → should print the expected string.
+
+**Deliverable:**
+- `packages/shared/src/llm.ts` exists and exports `models`, `chatModels`, `embedModel`
+- Smoke test runs successfully and prints the expected LLM response
+- Every future phase imports from `@hermes/shared/llm` — no model names hardcoded elsewhere
+- You can explain which SDK to use for which situation without re-reading the docs
+
+**Why this matters (read twice):**
+- Phase 1 (Data Agent) uses `chatModels.standard` in its LangGraph node
+- Phase 2 (Memory extraction) uses `models.fast` with `generateObject()` — one-shot structured output
+- Phase 3 (Herald routing) uses `models.fast` with `generateObject()` — one-shot classification
+- Phase 4 (Embeddings) uses `embedModel`
+- Phase 6 (Model routing by query complexity) maps query tier → model tier — all defined in one file
+- Phase 11 (Chronos) uses `chatModels.deep` via Deep Agents
+
+**One file. One change to swap any provider. This is the whole point.**
+
+**Learning Resources:**
+
+| Topic | Resource | Format |
+|-------|----------|--------|
+| **Vercel AI SDK providers** | [AI SDK Providers Overview](https://ai-sdk.dev/providers/ai-sdk-providers) | Docs |
+| **Vercel AI SDK generateText** | [generateText Reference](https://ai-sdk.dev/docs/reference/ai-sdk-core/generate-text) | Docs |
+| **Vercel AI SDK generateObject** | [Structured Output with Zod](https://ai-sdk.dev/docs/ai-sdk-core/generating-structured-data) | Docs |
+| **LangChain ChatAnthropic**  | [ChatAnthropic Docs](https://js.langchain.com/docs/integrations/chat/anthropic) | Docs |
+| **When to use which SDK**   | [Vercel AI SDK vs LangChain](https://ai-sdk.dev/docs/introduction#vs-langchain) | Docs |
+
+
+---
+
 ### Phase 0.5: Git, CI, and Developer Tooling (Day 3, ~1 hour)
 
 **What:** Initialize git, set up basic CI, and configure linting. Do this early so every commit from Phase 1 onward is tracked and checked.
@@ -1111,6 +1484,179 @@ Context packing is an unsolved problem at scale. Every company building AI agent
 - **Command**: Combines state update + control flow (e.g., "update state AND go to node X").
 - **Checkpointing**: LangGraph can save/restore agent state mid-execution. Critical for human-in-the-loop (pause agent → wait for user → resume).
 
+---
+
+### How Herald Routing Works (Read This Before Building Phase 3)
+
+This is the single most important pattern in the project. Burn it in:
+
+**Step 1 — Herald receives the query with its agent registry:**
+
+```typescript
+import { generateObject } from 'ai'
+import { models } from '@hermes/shared/llm'
+import { z } from 'zod'
+
+const AGENT_REGISTRY = `
+- IRIS: Communications — Slack, Gmail, Calendar.
+  Examples: "post to #general", "draft email to X", "am I free Thursday?"
+
+- HEPHAESTUS: Code & project tracking — GitHub (PRs, issues, commits),
+  Linear (tickets, projects).
+  Examples: "summarize open PRs", "what's blocking the sprint?"
+
+- ATLAS: Database queries — structured data in user's PostgreSQL.
+  Examples: "how many signups today?", "top customers by revenue"
+
+- ARGUS: Operations & errors — Sentry errors, deployment status, uptime.
+  Examples: "what errors are happening?", "why did deploy fail?"
+
+- METIS: Product analytics — PostHog events, funnels, feature flags.
+  Examples: "retention this week?", "most-used feature?"
+
+- CHRONOS: Deep research agent (Phase 11). Use ONLY when query requires:
+  - Investigating across 3+ data sources
+  - Multi-step hypothesis testing
+  - "Report" / "analyze root cause" / "deep dive" / "figure out why"
+  - Expected runtime > 2 minutes
+  Do NOT use Chronos for simple lookups or single-tool queries.
+`
+
+const RoutingSchema = z.object({
+  agents: z.array(z.enum([
+    'iris', 'hephaestus', 'atlas', 'argus', 'metis', 'chronos'
+  ])).min(1),
+  plan: z.array(z.object({
+    agent: z.string(),
+    task: z.string(),
+  })),
+  reason: z.string(),
+})
+```
+
+**Step 2 — Herald calls the LLM to classify the query:**
+
+```typescript
+// Inside the Herald LangGraph node
+const { object: routing } = await generateObject({
+  model: models.fast,  // Haiku — cheap, fast, accurate for classification
+  schema: RoutingSchema,
+  system: `You are the Herald, routing queries to specialist agents.
+${AGENT_REGISTRY}
+If multiple agents are needed, order them by execution dependency.`,
+  prompt: state.userQuery,
+})
+
+// routing.plan looks like:
+// [
+//   { agent: "hephaestus", task: "fetch open PRs and summarize" },
+//   { agent: "iris", task: "post summary to #engineering" }
+// ]
+```
+
+**Step 3 — LangGraph conditional edge routes to next agent:**
+
+```typescript
+// Conditional edge function
+function routeToNextAgent(state: HeraldState) {
+  const next = state.pendingAgents[0]
+  if (!next) return 'finalize'  // All done
+  return next  // Go to node named after the agent
+}
+
+graph.addConditionalEdges('herald', routeToNextAgent, {
+  iris: 'iris_agent',
+  hephaestus: 'hephaestus_agent',
+  atlas: 'atlas_agent',
+  argus: 'argus_agent',
+  metis: 'metis_agent',
+  chronos: 'chronos_agent',
+  finalize: 'finalize_node',
+})
+```
+
+**Step 4 — Specialist agent does work (its own subgraph):**
+
+```typescript
+// apps/agent-runtime/src/agents/hephaestus.ts
+import { chatModels } from '@hermes/shared/llm'
+import { githubTools } from '../tools/github-mcp'
+
+// This is a separate LangGraph subgraph with its own state
+export const hephaestusAgent = createReactAgent({
+  llm: chatModels.standard.bindTools(githubTools),
+  tools: githubTools,
+  messageModifier: `You are Hephaestus, master of code and forges.
+You handle GitHub and Linear. Be concise and technical.`,
+})
+
+// When invoked, it runs its own tool-calling loop:
+// LLM → pick tool → call GitHub MCP → get result → LLM → pick next tool → ...
+// Until done, then returns final message to Herald's state.
+```
+
+**Step 5 — Write actions pause for human approval:**
+
+```typescript
+// Inside Iris agent, before calling Slack post_message
+if (action === 'post_message') {
+  // LangGraph interrupt — pauses graph, saves checkpoint
+  const approval = interrupt({
+    type: 'confirm_write',
+    agent: 'iris',
+    action: 'post_message',
+    channel: '#engineering',
+    content: draftMessage,
+  })
+
+  // Execution resumes here only after user approves/rejects via UI
+  if (!approval.approved) {
+    return { status: 'cancelled_by_user' }
+  }
+}
+
+// Now execute the actual write
+await slackMCP.post_message({ channel: '#engineering', text: draftMessage })
+```
+
+**Step 6 — Herald checks for more pending agents, loops or finalizes:**
+
+```typescript
+// After each agent completes, control returns to Herald via edge
+// Herald checks state.pendingAgents and either routes to next or finalizes
+```
+
+**Full execution trace for "Summarize open PRs and post to #eng":**
+
+```
+t=0ms    User query received
+t=50ms   Herald LLM call (Haiku) → {agents:[hephaestus,iris], plan:[...]}
+t=300ms  Hephaestus called → GitHub MCP list_prs → 7 PRs
+t=2.1s   Hephaestus LLM call (Sonnet) → summary text
+t=2.2s   State: hephaestusResult = "3 merged, 2 awaiting..."
+t=2.3s   Herald edge → route to Iris
+t=2.4s   Iris LLM call (Sonnet) → decides to post via Slack
+t=2.5s   Iris INTERRUPT → "Post this to #eng? [Approve/Edit]"
+t=???    [User clicks Approve in UI]
+t=X+50   Iris Slack MCP post_message → success
+t=X+300  Herald finalize → stream "Done" back to user
+```
+
+**The cost:**
+- 1x Haiku call (routing): ~$0.0003
+- 1x Sonnet call (Hephaestus summary): ~$0.003
+- 1x Sonnet call (Iris drafting): ~$0.003
+- **Total: ~$0.006 per query** — cheaper than a coffee sip.
+
+**What NOT to do (common mistakes):**
+
+1. ❌ **Hardcoded routing** — `if query.includes('slack') → iris`. Breaks immediately.
+2. ❌ **Using Opus for Herald** — Waste of money. Routing is classification; Haiku is better here.
+3. ❌ **One agent for everything** — LLM gets overwhelmed, tool selection accuracy drops.
+4. ❌ **Specialists calling specialists** — Infinite loop risk. Only Herald orchestrates.
+5. ❌ **No plan step** — Picking just one agent fails on multi-step queries ("X and then Y").
+6. ❌ **Chronos as default** — Don't invoke Deep Agent for quick lookups. It's expensive.
+
 ### Deliverable
 
 - Ask "Summarize my open PRs and draft a Slack message about them" → Planner routes to Code Agent (fetches PRs) then Comms Agent (drafts message) → shows confirmation before posting
@@ -1380,6 +1926,71 @@ Semantic search alone misses exact keyword matches ("Error code 403"). Keyword s
 ## Phase 8: Deployment & Production Hardening (Week 13-14)
 
 **Goal:** Deploy to production. Since dev already uses Neon + Upstash, production deployment is mostly just promoting the `main` Neon branch and pointing hosting services at it. No Docker, no infra surprises.
+
+### ⚠️ THE CRITICAL DEPLOYMENT SPLIT (Read First)
+
+**Vercel hosts the FRONTEND. Railway hosts the AGENT RUNTIME. Do NOT deploy the agent-runtime to Vercel.**
+
+Why:
+- Vercel Hobby has a 60s function timeout, Pro has 300s. Multi-agent queries routinely take 30-60s. You will hit this.
+- Vercel does NOT support WebSockets. Phase 7 real-time notifications will silently fail.
+- Vercel functions are ephemeral. Redis Streams consumers, Inngest handlers, and event listeners need an always-on process.
+
+```
+┌──────────────────────────────┐
+│           VERCEL              │
+│   Next.js Frontend (apps/web) │
+│   - Chat UI, dashboard        │
+│   - Proxy /api/chat → Railway │
+│   - NO agent logic here       │
+│   - NO LangGraph here         │
+└──────────────┬────────────────┘
+               │ HTTPS stream passthrough
+               │ WebSocket for real-time events
+               ▼
+┌──────────────────────────────┐
+│   RAILWAY (apps/agent-runtime)│
+│   - Always-on Node.js process │
+│   - No timeout limits         │
+│   - LangGraph orchestration   │
+│   - MCP clients stay connected│
+│   - Redis Streams consumers   │
+│   - WebSocket server          │
+│   - Inngest function handlers │
+└──────────────┬────────────────┘
+               │
+        ┌──────┴──────┐
+        ▼             ▼
+     ┌─────┐    ┌─────────┐
+     │ Neon│    │ Upstash │
+     │ +PGv│    │  Redis  │
+     └─────┘    └─────────┘
+```
+
+**The proxy pattern in Next.js (`apps/web/src/app/api/chat/route.ts`):**
+```typescript
+// Next.js API route — thin proxy to Railway. No agent logic here.
+export async function POST(req: Request) {
+  const body = await req.text()
+  const response = await fetch(`${process.env.AGENT_RUNTIME_URL}/api/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.AGENT_RUNTIME_SECRET}`,
+    },
+    body,
+    // Pass through streaming
+    duplex: 'half',
+  })
+
+  // Stream the response back to the client unchanged
+  return new Response(response.body, {
+    headers: response.headers,
+  })
+}
+```
+
+The client talks to `/api/chat` on Vercel → Vercel pipes it to Railway → Railway does the actual agent work → response streams back through Vercel to the client. Vercel only holds the connection open during the stream; it doesn't execute any long-running logic.
 
 ### Tasks
 
@@ -1912,6 +2523,7 @@ Every phase teaches both *AI-specific* and *general systems engineering* concept
 | **8**  | Production LLM failure modes, graceful degradation (fallback models), health checks for AI services                         | Managed infrastructure (Neon, Upstash, Railway, Vercel), zero-Docker deploys, buildpacks, Prisma production migrations, deploy pipelines, structured logging (Pino), rate limiting |
 | **9**  | AI UX patterns (thinking indicators, tool call transparency, confidence display)                                            | Product polish, documentation as engineering, demo as communication                                                                                     |
 | **10** | Per-tenant model routing, usage-based LLM cost allocation, org-scoped memory isolation                                      | Multi-tenancy (shared DB + RLS), OAuth 2.0 flows, encrypted credential storage (AES-256-GCM), Stripe billing, onboarding funnels                        |
+| **11** | Deep Agents (planning tool, virtual filesystem, subagent spawning), long-horizon context management via file state, autonomous research patterns | Async job orchestration (Inngest), WebSocket progress streaming, file-based agent state persistence                          |
 
 
 ### Recommended Reading Per Engineering Discipline
@@ -1950,6 +2562,146 @@ Every phase teaches both *AI-specific* and *general systems engineering* concept
 | [Neon: Multi-Tenant SaaS](https://neon.tech/blog/multi-tenant-saas)                                                                          | Phase 10.    | Article |
 | [Stripe Billing Quickstart](https://docs.stripe.com/billing/quickstart)                                                                      | Phase 10.    | Docs    |
 
+
+---
+
+## Phase 11: Chronos — Deep Research Agent (Week 26-27)
+
+**Goal:** Add a long-horizon autonomous research agent, built on Deep Agents JS, that Herald can invoke for complex investigation queries. This is the most 2026-relevant skill you can add to your resume — very few candidates have production Deep Agent experience.
+
+**Prerequisite:** Phase 1-10 complete. You understand LangGraph deeply, have 8 MCP servers running, and your eval suite is in place.
+
+### Why a Deep Agent (Not Just Another LangGraph Agent)
+
+A LangGraph specialist agent (Iris, Hephaestus, etc.) completes in 5-30 seconds with 5-20 tool calls. It works because the full conversation fits in the context window.
+
+A **research task** is different:
+- "Investigate why Cruvo retention dropped this week" requires:
+  - Query PostHog funnels (20+ results)
+  - Pull Sentry errors for the period (50+ errors)
+  - Check recent GitHub deploys (10+ PRs with diffs)
+  - Read Slack #bugs messages (100+ messages)
+  - Cross-correlate findings
+  - Test hypotheses iteratively
+- This blows past 100K tokens. A LangGraph agent would hit context limits by tool call 30.
+
+**Deep Agents solve this with 4 capabilities:**
+
+1. **Planning tool (`write_todos`)** — Agent externalizes its plan as a todo list so it doesn't lose the thread
+2. **Virtual filesystem** — `write_file`, `read_file`, `edit_file` in agent state. Agent writes findings to files, reads summaries later, keeps main context clean
+3. **Subagent spawning (`task` tool)** — Agent can spawn a sub-agent with its own context window for isolated investigation. Sub-agent returns a SUMMARY, not raw data. Main agent's context stays lean.
+4. **Battle-tested system prompt** — Inspired by Claude Code's prompt, engineered for long-horizon work
+
+### Tasks
+
+- [ ] **11.1** Install Deep Agents JS
+  ```bash
+  cd apps/agent-runtime
+  pnpm add deepagents
+  ```
+
+- [ ] **11.2** Create the Chronos agent (`apps/agent-runtime/src/agents/chronos.ts`)
+  ```typescript
+  import { createDeepAgent } from 'deepagents'
+  import { chatModels } from '@hermes/shared/llm'
+  import {
+    githubTools, linearTools, sentryTools,
+    posthogTools, slackTools, postgresTools
+  } from '../tools'
+
+  const CHRONOS_SYSTEM_PROMPT = `You are Chronos, the deep research agent.
+  You handle long-horizon investigation tasks that require cross-referencing
+  multiple data sources and testing hypotheses.
+
+  When given a research task:
+  1. Use write_todos FIRST to break it into investigable sub-questions.
+  2. For each sub-question requiring deep dive, use the task tool to spawn
+     a sub-agent. Sub-agents return summaries; you keep the high-level picture.
+  3. Write intermediate findings to files (e.g., hypothesis-1.md, findings.md).
+  4. When all sub-questions are answered, synthesize into a final report file.
+
+  Tools available: GitHub, Linear, Sentry, PostHog, Slack, PostgreSQL.`
+
+  export const chronos = createDeepAgent({
+    model: chatModels.deep,  // Opus — this is the expensive one, worth it
+    tools: [
+      ...githubTools,
+      ...linearTools,
+      ...sentryTools,
+      ...posthogTools,
+      ...slackTools,
+      ...postgresTools,
+    ],
+    instructions: CHRONOS_SYSTEM_PROMPT,
+  })
+  ```
+
+- [ ] **11.3** Add Chronos as a Herald routing target
+  Update Herald's `AGENT_REGISTRY` string to include Chronos (already done in Phase 3 routing docs above). Herald picks Chronos only for research/deep-dive queries.
+
+- [ ] **11.4** Async execution + progress updates
+  - Chronos runs can take 5-30 minutes. Don't block the chat UI.
+  - Kick off Chronos via Inngest: `inngest.send({ name: 'chronos/start', data: { query, runId } })`
+  - Inngest handler runs the Deep Agent, streams progress events to Redis pub/sub
+  - Frontend subscribes via WebSocket → shows live progress: "Reading 50 Sentry errors... ✓", "Spawning sub-agent to analyze deploy history...", etc.
+  - When done, Chronos writes final report to PostgreSQL + notifies user
+
+- [ ] **11.5** Show the filesystem workspace in the UI
+  - Dashboard page for Chronos runs: `/chronos/[runId]`
+  - Display: todo list (live-updating), file tree (the virtual filesystem), final report
+  - Let user download the report as Markdown
+
+- [ ] **11.6** Eval Chronos separately
+  - Add a new eval dataset category: `deep-research`
+  - 20 test research queries with expected findings
+  - Score on: correctness of conclusions, citation accuracy, cost per run (should be <$5)
+
+### Concept: The Subagent Pattern
+
+```
+Chronos main agent (context budget: 200K tokens)
+  │
+  │ Todo 1: "Analyze recent Sentry errors"
+  │ → spawns subagent with `task` tool
+  │
+  ├─► Subagent A (fresh 200K context)
+  │     - Reads 100 Sentry issues
+  │     - Analyzes patterns
+  │     - Returns SUMMARY: "3 error categories, all on v2.3.1..."
+  │     - [Subagent's 100K tokens of raw data are discarded]
+  │
+  │ Main agent's context adds only the summary (~500 tokens)
+  │
+  │ Todo 2: "Correlate with recent deploys"
+  │ → spawns another subagent
+  │
+  ├─► Subagent B (fresh 200K context)
+  │     - Reads 50 GitHub PRs, diffs
+  │     - Returns SUMMARY: "v2.3.1 shipped 2 days before error spike..."
+  │
+  │ Main agent synthesizes: "Root cause likely PR #123 in v2.3.1"
+  │ Writes to findings.md via write_file tool
+  │
+  └─► Final report generated from findings/*.md files
+```
+
+**This is how Claude Code handles massive codebases** and how you'll handle massive data volumes in Hermes.
+
+### Deliverable
+- User asks "Investigate why Cruvo retention dropped this week" → Herald routes to Chronos → async job kicks off → progress streams to dashboard → final report appears in ~10-20 minutes
+- Deep Agent filesystem visible in UI (user can see todos, intermediate files, final report)
+- Chronos eval passes on 20 research queries with >80% correct conclusions
+- Average cost per Chronos run: $2-5 (Opus is expensive but worth it for research quality)
+
+### Learning Resources
+
+| Topic | Resource | Format |
+|-------|----------|--------|
+| **Deep Agents overview** | [Deep Agents Blog Post](https://www.langchain.com/blog/deep-agents) | Article |
+| **Deep Agents JS docs** | [deepagentsjs GitHub](https://github.com/langchain-ai/deepagentsjs) | Docs |
+| **Claude Code system prompt analysis** | [How Claude Code Works](https://www.anthropic.com/engineering/claude-code-best-practices) | Article |
+| **Manus agent architecture** | [Manus Architecture Breakdown](https://www.latent.space/p/manus) | Article |
+| **Subagent patterns** | [OpenAI Deep Research (concept breakdown)](https://openai.com/index/introducing-deep-research/) | Article |
 
 ---
 
@@ -2016,6 +2768,7 @@ These are features you can add after the core is shipped. Each one teaches a new
 | Phase 8  | Visit production URL → full functionality works. Push to main → auto-deploys. Health check green                                                      |
 | Phase 9  | Share URL with a friend → they can connect GitHub and ask questions without your help                                                                 |
 | Phase 10 | Two different orgs sign up → connect different Slack workspaces → neither can see the other's data. Stripe checkout works. Free tier enforces limits. |
+| Phase 11 | "Investigate why retention dropped" → Herald routes to Chronos → dashboard shows live todo list, growing file tree → 15 min later, final report appears with cited conclusions. Cost < $5. |
 
 
 ### Continuous Verification
@@ -2057,5 +2810,11 @@ TypeScript, LangGraph.js, MCP, PostgreSQL/pgvector, Redis, Python
   encrypted credential storage, OAuth integration flows, and 
   Stripe usage-based billing — serving multiple paying orgs 
   on shared infrastructure at $95/mo infra cost
+
+- Integrated Deep Agents JS to build Chronos, a long-horizon 
+  research agent with virtual filesystem, planning tool, and 
+  subagent spawning — enables multi-hour autonomous investigations 
+  across 8 data sources with context preservation via file-based 
+  state management
 ```
 

@@ -9,4 +9,4 @@ import { config } from "dotenv";
 // This file lives at packages/shared/src/load-env.ts.
 // Monorepo root is three levels up: src → shared → packages → root.
 const here = fileURLToPath(new URL(".", import.meta.url));
-config({ path: resolve(here, "../../../.env") });
+config({ path: resolve(here, "../../../.env"), quiet: true });
