@@ -14,12 +14,21 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./llm": {
+      "types": "./src/llm.ts",
+      "default": "./src/llm.ts"
     }
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.71",
+    "@ai-sdk/openai": "^3.0.53",
+    "@langchain/anthropic": "^1.3.26",
+    "@langchain/core": "^1.1.40",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "@upstash/redis": "^1.37.0",
+    "ai": "^6.0.168",
     "dotenv": "^17.4.2",
     "ioredis": "^5.10.1",
     "pg": "^8.20.0",
