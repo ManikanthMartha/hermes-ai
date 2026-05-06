@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Multi-agent AI operations platform",
   "scripts": {
-    "dev": "turbo dev --filter=@hermes/web --filter=@hermes/agent-runtime",
+    "dev": "turbo dev --filter=@hermes/web --filter=@hermes/agent-runtime --filter=@hermes/mcp-slack --filter=@hermes/mcp-github --filter=@hermes/mcp-linear --filter=@hermes/mcp-sentry --filter=@hermes/mcp-gmail",
+    "gmail:auth": "pnpm --filter @hermes/mcp-gmail auth",
     "build": "turbo build",
     "lint": "turbo lint",
     "type-check": "turbo type-check",

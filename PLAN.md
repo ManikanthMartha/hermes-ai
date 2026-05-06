@@ -84,7 +84,7 @@ Think of it as a stack. Each layer is built on the one below:
 
 **Real-world examples of each:**
 - **LangChain only**: "Chat with your PDFs" app — upload, chunk, embed, retrieve, answer. Zero orchestration.
-- **LangGraph**: Hermes's Herald → Iris → Hephaestus flow with confirmation dialogs for writes.
+- **LangGraph**: Hermes's Herald → Iris → Talos flow with confirmation dialogs for writes.
 - **Deep Agents**: Claude Code (writes/edits files in a workspace, spawns subagents), OpenAI Deep Research (runs for minutes, reads dozens of sources, writes a report).
 
 **The golden rule:** Don't pick one framework for everything. Hermes uses **LangGraph as the primary orchestrator**, with **Deep Agents for the Chronos research agent** (Phase 11), and **LangChain primitives inside nodes** when needed.
@@ -114,7 +114,7 @@ USER QUERY
 │  Sends to LLM (Haiku — cheap & fast):            │
 │    System: "You route queries to these agents:    │
 │      IRIS (Slack, Gmail, Calendar)                │
-│      HEPHAESTUS (GitHub, Linear)                  │
+│      Talos (GitHub, Linear)                  │
 │      ATLAS (database queries)                     │
 │      ARGUS (Sentry, ops)                          │
 │      METIS (PostHog analytics)                    │
@@ -123,9 +123,9 @@ USER QUERY
 │    User: [the actual query]                       │
 │                                                   │
 │  LLM responds with structured output (Zod-valid): │
-│    { agents: ["hephaestus", "iris"],             │
+│    { agents: ["Talos", "iris"],             │
 │      plan: [                                      │
-│        {agent:"hephaestus", task:"summarize PRs"},│
+│        {agent:"Talos", task:"summarize PRs"},│
 │        {agent:"iris", task:"post to #eng"}       │
 │      ] }                                          │
 └──────────────────┬───────────────────────────────┘
@@ -134,8 +134,8 @@ USER QUERY
                    │
        ┌───────────┴───────────┐
        ▼                       ▼
-    HEPHAESTUS              IRIS
-    (runs first)     (runs after hephaestus,
+    Talos              IRIS
+    (runs first)     (runs after Talos,
                       may interrupt for human
                       approval before posting)
 ```
@@ -220,7 +220,7 @@ export const embedModel = openai.embedding('text-embedding-3-small')
 | Herald routing (classification) | Vercel AI SDK `generateObject` | One-shot + Zod structured output |
 | Memory extraction (LLM → facts) | Vercel AI SDK `generateObject` | One-shot + structured output |
 | Summarization, reranking | Vercel AI SDK `generateText` | One-shot, fast |
-| **Specialist agent tool-loops (Iris, Hephaestus, etc.)** | **LangGraph + `@langchain/anthropic`** | Multi-step, stateful, checkpointed |
+| **Specialist agent tool-loops (Iris, Talos, etc.)** | **LangGraph + `@langchain/anthropic`** | Multi-step, stateful, checkpointed |
 | Chronos (Phase 11) | Deep Agents JS + `@langchain/anthropic` | Built on LangGraph, long-horizon |
 | Embeddings for pgvector | Vercel AI SDK `@ai-sdk/openai` | `embed`, `embedMany` are clean |
 | MCP servers | Provider SDK directly OR Vercel AI SDK | MCP servers are simple — either works |
@@ -452,7 +452,7 @@ Month 6 with real usage:
   │       │   ├── agents/               # LangGraph agent definitions
   │       │   │   ├── herald.ts          # Supervisor/planner (Hermes as herald of the gods)
   │       │   │   ├── atlas.ts          # Data agent (Titan who held up the world of data)
-  │       │   │   ├── hephaestus.ts     # Code agent (god of craftsmanship)
+  │       │   │   ├── Talos.ts     # Code agent (god of craftsmanship)
   │       │   │   ├── iris.ts           # Comms agent (goddess of messages & rainbows)
   │       │   │   ├── argus.ts          # Ops agent (the 100-eyed watchman)
   │       │   │   └── metis.ts          # Product agent (titaness of wisdom & analysis)
@@ -1054,7 +1054,7 @@ This is the **most important abstraction in the entire project** for long-term m
   ## Model Tier Rules
 
   - `fast` (Haiku) — Herald routing, cache-key generation, simple classification
-  - `standard` (Sonnet) — default for all specialist agents (Iris, Hephaestus, etc.)
+  - `standard` (Sonnet) — default for all specialist agents (Iris, Talos, etc.)
   - `deep` (Opus) — Chronos deep research, complex multi-hop reasoning, critical write actions
 
   Never hardcode model names elsewhere in the codebase. Always import from `@hermes/shared/llm`.
@@ -1308,6 +1308,10 @@ MCP decouples agents from data sources. Your agent doesn't know it's talking to 
 
 **Goal:** Build a 3-tier memory system. This is what separates your project from every other "I built a chatbot" repo. The agent should remember things across conversations.
 
+> **📚 Before starting this phase, work through the curated learning curriculum in [`MEMORY_LAYER_RESOURCES.md`](./MEMORY_LAYER_RESOURCES.md).** It contains papers (MemGPT, LongMemEval, Mem0, Generative Agents), production blog posts (Anthropic, Databricks, Character.AI), and 3 hands-on DeepLearning.AI courses — all from reputable sources. Budget ~20-30 hours of study for this phase. Memory is the hardest and most differentiating part of the whole project.
+>
+> **Note:** You can optionally skip this phase on your first pass and move to Phase 3 (multi-agent orchestration) to get a working demo faster. Return to Phase 2 once you've seen the system work end-to-end without persistent memory — you'll appreciate *why* it's needed.
+
 ### Tasks
 
 - **2.1** Session Memory (Redis)
@@ -1501,7 +1505,7 @@ const AGENT_REGISTRY = `
 - IRIS: Communications — Slack, Gmail, Calendar.
   Examples: "post to #general", "draft email to X", "am I free Thursday?"
 
-- HEPHAESTUS: Code & project tracking — GitHub (PRs, issues, commits),
+- Talos: Code & project tracking — GitHub (PRs, issues, commits),
   Linear (tickets, projects).
   Examples: "summarize open PRs", "what's blocking the sprint?"
 
@@ -1524,7 +1528,7 @@ const AGENT_REGISTRY = `
 
 const RoutingSchema = z.object({
   agents: z.array(z.enum([
-    'iris', 'hephaestus', 'atlas', 'argus', 'metis', 'chronos'
+    'iris', 'Talos', 'atlas', 'argus', 'metis', 'chronos'
   ])).min(1),
   plan: z.array(z.object({
     agent: z.string(),
@@ -1549,7 +1553,7 @@ If multiple agents are needed, order them by execution dependency.`,
 
 // routing.plan looks like:
 // [
-//   { agent: "hephaestus", task: "fetch open PRs and summarize" },
+//   { agent: "Talos", task: "fetch open PRs and summarize" },
 //   { agent: "iris", task: "post summary to #engineering" }
 // ]
 ```
@@ -1566,7 +1570,7 @@ function routeToNextAgent(state: HeraldState) {
 
 graph.addConditionalEdges('herald', routeToNextAgent, {
   iris: 'iris_agent',
-  hephaestus: 'hephaestus_agent',
+  Talos: 'Talos_agent',
   atlas: 'atlas_agent',
   argus: 'argus_agent',
   metis: 'metis_agent',
@@ -1578,15 +1582,15 @@ graph.addConditionalEdges('herald', routeToNextAgent, {
 **Step 4 — Specialist agent does work (its own subgraph):**
 
 ```typescript
-// apps/agent-runtime/src/agents/hephaestus.ts
+// apps/agent-runtime/src/agents/Talos.ts
 import { chatModels } from '@hermes/shared/llm'
 import { githubTools } from '../tools/github-mcp'
 
 // This is a separate LangGraph subgraph with its own state
-export const hephaestusAgent = createReactAgent({
+export const TalosAgent = createReactAgent({
   llm: chatModels.standard.bindTools(githubTools),
   tools: githubTools,
-  messageModifier: `You are Hephaestus, master of code and forges.
+  messageModifier: `You are Talos, master of code and forges.
 You handle GitHub and Linear. Be concise and technical.`,
 })
 
@@ -1630,10 +1634,10 @@ await slackMCP.post_message({ channel: '#engineering', text: draftMessage })
 
 ```
 t=0ms    User query received
-t=50ms   Herald LLM call (Haiku) → {agents:[hephaestus,iris], plan:[...]}
-t=300ms  Hephaestus called → GitHub MCP list_prs → 7 PRs
-t=2.1s   Hephaestus LLM call (Sonnet) → summary text
-t=2.2s   State: hephaestusResult = "3 merged, 2 awaiting..."
+t=50ms   Herald LLM call (Haiku) → {agents:[Talos,iris], plan:[...]}
+t=300ms  Talos called → GitHub MCP list_prs → 7 PRs
+t=2.1s   Talos LLM call (Sonnet) → summary text
+t=2.2s   State: TalosResult = "3 merged, 2 awaiting..."
 t=2.3s   Herald edge → route to Iris
 t=2.4s   Iris LLM call (Sonnet) → decides to post via Slack
 t=2.5s   Iris INTERRUPT → "Post this to #eng? [Approve/Edit]"
@@ -1644,7 +1648,7 @@ t=X+300  Herald finalize → stream "Done" back to user
 
 **The cost:**
 - 1x Haiku call (routing): ~$0.0003
-- 1x Sonnet call (Hephaestus summary): ~$0.003
+- 1x Sonnet call (Talos summary): ~$0.003
 - 1x Sonnet call (Iris drafting): ~$0.003
 - **Total: ~$0.006 per query** — cheaper than a coffee sip.
 
@@ -2573,7 +2577,7 @@ Every phase teaches both *AI-specific* and *general systems engineering* concept
 
 ### Why a Deep Agent (Not Just Another LangGraph Agent)
 
-A LangGraph specialist agent (Iris, Hephaestus, etc.) completes in 5-30 seconds with 5-20 tool calls. It works because the full conversation fits in the context window.
+A LangGraph specialist agent (Iris, Talos, etc.) completes in 5-30 seconds with 5-20 tool calls. It works because the full conversation fits in the context window.
 
 A **research task** is different:
 - "Investigate why Cruvo retention dropped this week" requires:
