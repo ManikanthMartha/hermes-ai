@@ -1,6 +1,10 @@
 import { generateObject } from "ai";
 import { z } from "zod";
-import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
+import {
+  HumanMessage,
+  SystemMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch";
 import { Command, END, Send } from "@langchain/langgraph";
 import { models } from "@hermes/shared/llm";
@@ -79,6 +83,7 @@ export interface HeraldOutput {
 
 export async function runHerald(
   messages: BaseMessage[],
+  memoryContext?: string,
 ): Promise<HeraldOutput> {
   // Hard cap: count nudges emitted SINCE the last real user message.
   // Earlier this counted every nudge in the checkpointer's history, which
@@ -104,7 +109,16 @@ export async function runHerald(
     return out;
   }
 
-  const history = messages.map(messageToAIPart).filter(nonEmpty);
+  const history = [
+    memoryContext?.trim()
+      ? messageToAIPart(
+          new SystemMessage(
+            `Hermes memory context for this turn:\n${memoryContext}`,
+          ),
+        )
+      : null,
+    ...messages.map(messageToAIPart),
+  ].filter(nonEmpty);
 
   // Anthropic's structured-output API rejects requests whose final message is
   // `assistant` (they treat it as pre-fill, which is incompatible with
@@ -188,13 +202,19 @@ function nonEmpty<T>(v: T | null | undefined): v is T {
 export function routingToCommand(
   out: HeraldOutput,
   currentMessages: BaseMessage[],
+  memoryContext?: string,
 ): Command<unknown> | typeof END {
   if (out.agents.length === 0) {
     return new Command({ goto: END });
   }
 
   const nudge = new HumanMessage({
-    content: `[Herald → ${out.agents.join(", ")}] ${out.reason}`,
+    content: [
+      `[Herald → ${out.agents.join(", ")}] ${out.reason}`,
+      memoryContext?.trim()
+        ? `\nRelevant Hermes memory context for this task:\n${memoryContext}`
+        : "",
+    ].join(""),
     additional_kwargs: { [NUDGE_FLAG]: true },
   });
 

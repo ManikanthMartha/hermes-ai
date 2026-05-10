@@ -14,6 +14,7 @@
  */
 
 import type { UIMessageStreamWriter } from "ai";
+import { ConversationStore, DEFAULT_USER_ID } from "@hermes/memory";
 import { SPECIALIST_KEYS, type SpecialistKey } from "../agents/names.js";
 
 const SPECIALISTS: ReadonlySet<string> = new Set(SPECIALIST_KEYS);
@@ -50,6 +51,7 @@ type UIWriter = UIMessageStreamWriter;
 interface BridgeOptions {
   graph: HermesGraph;
   threadId: string;
+  userId?: string;
   writer: UIWriter;
   /** The input fed into `graph.streamEvents` — `{ messages: [...] }` for a new
    * turn, or a `Command({ resume })` for HIL resume. */
@@ -65,13 +67,16 @@ interface BridgeOptions {
 export async function pumpGraphToWriter({
   graph,
   threadId,
+  userId = DEFAULT_USER_ID,
   writer,
   input,
 }: BridgeOptions): Promise<void> {
   const config = { configurable: { thread_id: threadId }, version: "v2" as const };
+  const conversation = new ConversationStore(userId);
 
   // Track which text blocks we've opened so we can emit text-end.
   const openTextIds = new Set<string>();
+  const textByRunId = new Map<string, string>();
   // LangGraph's createReactAgent fires on_chain_start/on_chain_end twice for
   // the same specialist name (outer node + inner ReAct subgraph). Dedupe.
   const openAgents = new Set<string>();
@@ -174,6 +179,7 @@ export async function pumpGraphToWriter({
           openTextIds.add(run_id);
         }
         writer.write({ type: "text-delta", id: run_id, delta });
+        textByRunId.set(run_id, `${textByRunId.get(run_id) ?? ""}${delta}`);
         break;
       }
 
@@ -185,6 +191,14 @@ export async function pumpGraphToWriter({
           toolName: name,
           input: input ?? {},
         });
+        await conversation
+          .appendMessage(threadId, {
+            role: "tool",
+            content: `Tool started: ${name}`,
+            name,
+            metadata: { event: "tool_start", toolCallId: run_id, input: input ?? {} },
+          })
+          .catch(() => undefined);
         break;
       }
 
@@ -196,6 +210,14 @@ export async function pumpGraphToWriter({
           toolCallId: run_id,
           output: data.output,
         });
+        await conversation
+          .appendMessage(threadId, {
+            role: "tool",
+            content: truncateToolOutput(data.output),
+            name,
+            metadata: { event: "tool_end", toolCallId: run_id },
+          })
+          .catch(() => undefined);
         break;
       }
 
@@ -207,6 +229,17 @@ export async function pumpGraphToWriter({
   // Close any text blocks we opened.
   for (const id of openTextIds) {
     writer.write({ type: "text-end", id });
+  }
+
+  const assistantText = [...textByRunId.values()].join("").trim();
+  if (assistantText) {
+    await conversation
+      .appendMessage(threadId, {
+        role: "assistant",
+        content: assistantText,
+        metadata: { source: "langgraph" },
+      })
+      .catch(() => undefined);
   }
 
   // After the stream drains, check for a paused interrupt (HIL).
@@ -236,6 +269,24 @@ export async function pumpGraphToWriter({
           ...(v.actions && { actions: v.actions }),
         },
       });
+      await conversation
+        .appendMessage(threadId, {
+          role: "assistant",
+          content: `Approval requested: ${v.label ?? v.tool}`,
+          metadata: {
+            event: "approval_request",
+            tool: v.tool,
+            input: v.input ?? {},
+            actions: v.actions ?? ["send"],
+          },
+        })
+        .catch(() => undefined);
     }
   }
+}
+
+function truncateToolOutput(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  if (!text) return "";
+  return text.length > 2_000 ? `${text.slice(0, 2_000)} ...[truncated]` : text;
 }

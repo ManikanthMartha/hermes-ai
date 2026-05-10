@@ -5,6 +5,7 @@ import {
 } from "ai";
 import { Command } from "@langchain/langgraph";
 import { logger } from "@hermes/shared";
+import { ConversationStore, DEFAULT_USER_ID } from "@hermes/memory";
 import { getGraph } from "../graph.js";
 import { pumpGraphToWriter } from "./chat-bridge.js";
 import type { ApprovalDecision } from "../agents/approval.js";
@@ -37,6 +38,19 @@ export async function handleResume(req: Request, res: Response) {
     return;
   }
 
+  const conversation = new ConversationStore(DEFAULT_USER_ID);
+  await conversation
+    .appendMessage(threadId, {
+      role: "user",
+      content: decision.approved
+        ? `Approved write action (${decision.action ?? "send"}).`
+        : `Rejected write action: ${decision.reason ?? "rejected by user"}.`,
+      metadata: { source: "approval-decision", decision },
+    })
+    .catch((err) => {
+      logger.warn({ err, threadId }, "failed to persist approval decision");
+    });
+
   let graph: Awaited<ReturnType<typeof getGraph>>;
   try {
     graph = await getGraph();
@@ -54,6 +68,7 @@ export async function handleResume(req: Request, res: Response) {
         await pumpGraphToWriter({
           graph,
           threadId,
+          userId: DEFAULT_USER_ID,
           writer,
           input: new Command({ resume: decision }),
         });

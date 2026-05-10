@@ -8,8 +8,13 @@ import {
   type UIMessageChunk,
 } from "ai";
 import { cn } from "@hermes/ui/lib/utils";
-import { RotateCcwIcon, XIcon } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import {
+  MessageSquareIcon,
+  PlusIcon,
+  RotateCcwIcon,
+  XIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -32,12 +37,94 @@ import { StatusStrip } from "./status-strip";
 import { ToolPart } from "./tool-part";
 
 const EXAMPLES = [
+  "remember that I prefer concise emails",
+  "what do you remember about me?",
   "list my most active github repos",
-  "what did I discuss with the team in slack this week",
   "any linear issues assigned to me",
 ];
 
+interface SavedConversation {
+  id: string;
+  threadId: string;
+  title: string | null;
+  updatedAt: string;
+  messageCount: number;
+}
+
 export function Chat() {
+  const [threadId, setThreadId] = useState(() => crypto.randomUUID());
+  const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
+  const [sessions, setSessions] = useState<SavedConversation[]>([]);
+  const [loadingSessionId, setLoadingSessionId] = useState<string | null>(null);
+
+  const refreshSessions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/conversations", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        conversations?: SavedConversation[];
+      };
+      setSessions(data.conversations ?? []);
+    } catch {
+      // Saved sessions are convenience UI; chat remains usable if unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSessions();
+  }, [refreshSessions]);
+
+  const startNew = useCallback(() => {
+    setInitialMessages([]);
+    setThreadId(crypto.randomUUID());
+  }, []);
+
+  const loadSession = useCallback(async (id: string) => {
+    setLoadingSessionId(id);
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { messages?: UIMessage[] };
+      setInitialMessages(data.messages ?? []);
+      setThreadId(id);
+    } finally {
+      setLoadingSessionId(null);
+    }
+  }, []);
+
+  return (
+    <ChatThread
+      key={threadId}
+      threadId={threadId}
+      initialMessages={initialMessages}
+      sessions={sessions}
+      loadingSessionId={loadingSessionId}
+      onNew={startNew}
+      onLoadSession={loadSession}
+      onSessionsChanged={refreshSessions}
+    />
+  );
+}
+
+function ChatThread({
+  threadId,
+  initialMessages,
+  sessions,
+  loadingSessionId,
+  onNew,
+  onLoadSession,
+  onSessionsChanged,
+}: {
+  threadId: string;
+  initialMessages: UIMessage[];
+  sessions: SavedConversation[];
+  loadingSessionId: string | null;
+  onNew: () => void;
+  onLoadSession: (id: string) => void | Promise<void>;
+  onSessionsChanged: () => void | Promise<void>;
+}) {
   const {
     messages,
     setMessages,
@@ -48,19 +135,17 @@ export function Chat() {
     regenerate,
     clearError,
   } = useChat({
+    id: threadId,
+    messages: initialMessages,
     transport: new DefaultChatTransport({ api: "/api/chat" }),
-    // Coalesce token-level updates to ~20fps so rendering stays cheap and
-    // the cursor doesn't thrash on every character.
     experimental_throttle: 50,
+    onFinish: () => {
+      void onSessionsChanged();
+    },
   });
 
   const isStreaming = status === "submitted" || status === "streaming";
   const composerRef = useRef<ComposerHandle | null>(null);
-
-  // Tracks the most-recent approval's lifecycle so the card in the stream
-  // reflects submit → resolved/rejected states. Keyed by the approval's
-  // (threadId + tool) so concurrent approvals couldn't collide; in practice
-  // only one is ever pending because LangGraph pauses the whole graph.
   const [approvalStatus, setApprovalStatus] = useState<
     Record<string, "idle" | "submitting" | "resolved" | "rejected">
   >({});
@@ -71,15 +156,11 @@ export function Chat() {
     void sendMessage({ text });
   };
 
-  /** Handle Approve / Reject → POST /api/chat/resume → merge resulting
-   *  UIMessage parts into the tail of the last assistant message. */
   const handleApprovalDecision = useCallback(
     async (payload: ApprovalPayload, decision: ApprovalDecision) => {
       const key = approvalKey(payload);
       setApprovalStatus((s) => ({ ...s, [key]: "submitting" }));
 
-      // Snapshot the parts present BEFORE resume, so we can append the new
-      // stream's parts to them rather than replacing history.
       const priorParts =
         messages.at(-1)?.role === "assistant"
           ? [...(messages.at(-1)?.parts ?? [])]
@@ -93,8 +174,6 @@ export function Chat() {
         });
         if (!res.ok || !res.body) throw new Error(`resume ${res.status}`);
 
-        // The AI SDK's server helpers emit SSE bytes — `readUIMessageStream`
-        // wants already-parsed chunks. Pipe through an inline parser first.
         const chunks = sseBytesToChunks<UIMessageChunk>(res.body);
         for await (const msg of readUIMessageStream({ stream: chunks })) {
           setMessages((prev) => {
@@ -111,76 +190,159 @@ export function Chat() {
           ...s,
           [key]: decision.approved ? "resolved" : "rejected",
         }));
+        void onSessionsChanged();
       } catch {
         setApprovalStatus((s) => ({ ...s, [key]: "idle" }));
       }
     },
-    [messages, setMessages],
+    [messages, onSessionsChanged, setMessages],
   );
 
   return (
-    <div className="bg-background text-foreground flex h-svh flex-col font-sans">
-      <StatusStrip chatStatus={status} />
+    <div className="bg-background text-foreground flex h-svh font-sans">
+      <SessionRail
+        activeId={threadId}
+        sessions={sessions}
+        loadingSessionId={loadingSessionId}
+        onNew={onNew}
+        onLoad={onLoadSession}
+      />
 
-      <Conversation className="relative flex-1">
-        <ConversationContent className="mx-auto w-full max-w-3xl px-6 py-8">
-          {messages.length === 0 ? (
-            <EmptyState onPick={(t) => submit(t)} />
-          ) : (
-            <div className="flex flex-col gap-8">
-              {messages.map((m) => (
-                <Turn
-                  key={m.id}
-                  message={m}
-                  isLast={m.id === messages.at(-1)?.id}
-                  isStreaming={isStreaming}
-                  approvalStatus={approvalStatus}
-                  approvalKey={approvalKey}
-                  onApprovalDecision={handleApprovalDecision}
-                />
-              ))}
-            </div>
-          )}
+      <main className="flex min-w-0 flex-1 flex-col">
+        <StatusStrip chatStatus={status} />
 
-          {error && (
-            <div className="border-destructive/40 bg-destructive/5 text-destructive mt-6 flex items-start justify-between gap-3 rounded-sm border px-3 py-2.5 text-[12.5px]">
-              <div className="min-w-0 flex-1">
-                <div className="font-medium">[ ✕ request failed ]</div>
-                <div className="text-destructive/80 mt-0.5 truncate font-mono text-[11.5px]">
-                  {error.message}
+        <Conversation className="relative flex-1">
+          <ConversationContent className="mx-auto w-full max-w-3xl px-6 py-8">
+            {messages.length === 0 ? (
+              <EmptyState onPick={(t) => submit(t)} />
+            ) : (
+              <div className="flex flex-col gap-8">
+                {messages.map((m) => (
+                  <Turn
+                    key={m.id}
+                    message={m}
+                    isLast={m.id === messages.at(-1)?.id}
+                    isStreaming={isStreaming}
+                    approvalStatus={approvalStatus}
+                    approvalKey={approvalKey}
+                    onApprovalDecision={handleApprovalDecision}
+                  />
+                ))}
+              </div>
+            )}
+
+            {error && (
+              <div className="border-destructive/40 bg-destructive/5 text-destructive mt-6 flex items-start justify-between gap-3 rounded-sm border px-3 py-2.5 text-[12.5px]">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">[ x request failed ]</div>
+                  <div className="text-destructive/80 mt-0.5 truncate font-mono text-[11.5px]">
+                    {error.message}
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                  <button
+                    onClick={() => {
+                      clearError();
+                      void regenerate();
+                    }}
+                    className="border-destructive/40 hover:bg-destructive hover:text-background inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] uppercase tracking-wider transition-colors"
+                  >
+                    <RotateCcwIcon className="size-2.5" /> retry
+                  </button>
+                  <button
+                    onClick={clearError}
+                    className="text-destructive/70 hover:text-destructive inline-flex items-center rounded-sm p-1 transition-colors"
+                    aria-label="Dismiss"
+                  >
+                    <XIcon className="size-3" />
+                  </button>
                 </div>
               </div>
-              <div className="flex shrink-0 gap-1.5">
-                <button
-                  onClick={() => {
-                    clearError();
-                    void regenerate();
-                  }}
-                  className="border-destructive/40 hover:bg-destructive hover:text-background inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] uppercase tracking-wider transition-colors"
-                >
-                  <RotateCcwIcon className="size-2.5" /> retry
-                </button>
-                <button
-                  onClick={clearError}
-                  className="text-destructive/70 hover:text-destructive inline-flex items-center rounded-sm p-1 transition-colors"
-                  aria-label="Dismiss"
-                >
-                  <XIcon className="size-3" />
-                </button>
-              </div>
-            </div>
-          )}
-        </ConversationContent>
-        <ConversationScrollButton className="border-border/60 bg-background hover:bg-card text-muted-foreground rounded-sm" />
-      </Conversation>
+            )}
+          </ConversationContent>
+          <ConversationScrollButton className="border-border/60 bg-background hover:bg-card text-muted-foreground rounded-sm" />
+        </Conversation>
 
-      <Composer
-        ref={composerRef}
-        onSubmit={submit}
-        onStop={stop}
-        isStreaming={isStreaming}
-      />
+        <Composer
+          ref={composerRef}
+          onSubmit={submit}
+          onStop={stop}
+          isStreaming={isStreaming}
+        />
+      </main>
     </div>
+  );
+}
+
+function SessionRail({
+  activeId,
+  sessions,
+  loadingSessionId,
+  onNew,
+  onLoad,
+}: {
+  activeId: string;
+  sessions: SavedConversation[];
+  loadingSessionId: string | null;
+  onNew: () => void;
+  onLoad: (id: string) => void | Promise<void>;
+}) {
+  return (
+    <aside className="border-border/60 bg-card/20 hidden w-72 shrink-0 border-r md:flex md:flex-col">
+      <div className="border-border/50 flex items-center justify-between border-b px-3 py-3">
+        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-hermes">
+          sessions
+        </div>
+        <button
+          onClick={onNew}
+          className="border-border/70 hover:border-hermes/60 hover:text-hermes inline-flex items-center gap-1 rounded-sm border px-2 py-1 font-mono text-[10.5px] uppercase tracking-wider transition-colors"
+        >
+          <PlusIcon className="size-3" /> new
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {sessions.length === 0 ? (
+          <div className="text-muted-foreground/70 px-2 py-4 font-mono text-[11.5px] leading-relaxed">
+            No saved chats yet. Start a conversation and Hermes will archive it.
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {sessions.map((session) => {
+              const active =
+                session.threadId === activeId || session.id === activeId;
+              return (
+                <button
+                  key={session.id}
+                  onClick={() => void onLoad(session.threadId)}
+                  disabled={loadingSessionId === session.threadId}
+                  className={cn(
+                    "group border-border/0 hover:border-border/60 hover:bg-background/50 flex w-full items-start gap-2 rounded-sm border px-2 py-2 text-left transition-colors",
+                    active && "border-hermes/40 bg-hermes/5",
+                  )}
+                >
+                  <MessageSquareIcon
+                    className={cn(
+                      "mt-0.5 size-3 shrink-0 text-muted-foreground",
+                      active && "text-hermes",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="text-foreground/90 line-clamp-2 block font-mono text-[12px] leading-snug">
+                      {session.title ?? "untitled chat"}
+                    </span>
+                    <span className="text-muted-foreground/60 mt-1 block font-mono text-[10.5px]">
+                      {formatSessionDate(session.updatedAt)} -{" "}
+                      {session.messageCount} msgs
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -191,22 +353,24 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         aria-hidden
         className="text-hermes/80 mb-6 select-none text-[11px] leading-[1.2]"
       >
-        {`  ╭─────────────────────────────╮
-  │   the messenger of gods     │
-  ╰─────────────────────────────╯`}
+        {`  +-----------------------------+
+  |   the messenger of gods     |
+  +-----------------------------+`}
       </pre>
 
       <div className="text-muted-foreground space-y-4">
         <p>
-          read from <span className="text-foreground">slack</span>,{" "}
-          <span className="text-foreground">github</span>, and{" "}
-          <span className="text-foreground">linear</span>. read-only for now —
-          nothing i find leaves the chat.
+          read from <span className="text-foreground">gmail</span>,{" "}
+          <span className="text-foreground">slack</span>,{" "}
+          <span className="text-foreground">github</span>,{" "}
+          <span className="text-foreground">linear</span>, and{" "}
+          <span className="text-foreground">sentry</span>. saved sessions and
+          individual memory are active.
         </p>
 
         <div>
           <div className="text-muted-foreground/60 mb-2 text-[10.5px] uppercase tracking-[0.18em]">
-            — examples
+            - examples
           </div>
           <ul className="space-y-1">
             {EXAMPLES.map((ex) => (
@@ -216,7 +380,7 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
                   className="group hover:text-hermes flex w-full items-baseline gap-2 text-left transition-colors"
                 >
                   <span className="text-hermes/70 group-hover:text-hermes select-none">
-                    ▸
+                    &gt;
                   </span>
                   <span className="text-foreground/80 group-hover:text-hermes underline-offset-4 group-hover:underline decoration-dotted">
                     {ex}
@@ -225,18 +389,6 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
               </li>
             ))}
           </ul>
-        </div>
-
-        <div className="text-muted-foreground/50 pt-4 text-[10.5px] uppercase tracking-[0.18em]">
-          — keyboard
-        </div>
-        <div className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 pl-3 text-[11.5px]">
-          <span className="text-hermes/80">enter</span>
-          <span>send</span>
-          <span className="text-hermes/80">shift+enter</span>
-          <span>newline</span>
-          <span className="text-hermes/80">esc</span>
-          <span>stop a running query</span>
         </div>
       </div>
     </div>
@@ -256,14 +408,16 @@ function Turn({
   isStreaming: boolean;
   approvalStatus: Record<string, "idle" | "submitting" | "resolved" | "rejected">;
   approvalKey: (p: ApprovalPayload) => string;
-  onApprovalDecision: (p: ApprovalPayload, d: ApprovalDecision) => void | Promise<void>;
+  onApprovalDecision: (
+    p: ApprovalPayload,
+    d: ApprovalDecision,
+  ) => void | Promise<void>;
 }) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Role line: monospace small-caps */}
       <div
         className={cn(
           "flex items-center gap-2 text-[10.5px] font-medium uppercase tracking-[0.18em]",
@@ -271,15 +425,14 @@ function Turn({
         )}
       >
         <span aria-hidden className="select-none">
-          {isUser ? "▸" : "◆"}
+          {isUser ? ">" : "*"}
         </span>
         <span>{isUser ? "you" : "hermes"}</span>
         {isAssistant && isLast && isStreaming && (
-          <span className="blink ml-1 text-[11px]">▮</span>
+          <span className="blink ml-1 text-[11px]">|</span>
         )}
       </div>
 
-      {/* Body: rail-bordered for assistant, plain indent for user */}
       <div
         className={cn(
           "pl-5",
@@ -295,23 +448,14 @@ function Turn({
                     <MessageResponse
                       key={i}
                       className={cn(
-                        // Hand-styled markdown via Tailwind 4 child selectors —
-                        // avoids pulling in @tailwindcss/typography for one component.
                         "text-foreground max-w-none text-[13.5px] leading-[1.65]",
                         "[&_p]:my-2 [&_p]:leading-[1.65]",
-                        "[&_h1]:text-foreground [&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-medium [&_h1]:tracking-tight",
-                        "[&_h2]:text-foreground [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-[0.95rem] [&_h2]:font-medium",
-                        "[&_h3]:text-foreground [&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:text-sm [&_h3]:font-medium",
                         "[&_strong]:text-foreground [&_strong]:font-medium",
-                        "[&_em]:text-foreground/90",
                         "[&_a]:text-hermes [&_a]:underline [&_a]:decoration-dotted [&_a]:underline-offset-4",
                         "[&_code]:bg-muted/50 [&_code]:text-foreground [&_code]:rounded-[3px] [&_code]:px-1 [&_code]:py-px [&_code]:text-[0.9em] [&_code]:font-mono",
                         "[&_pre]:bg-card/60 [&_pre]:border-border/60 [&_pre]:my-2 [&_pre]:rounded-sm [&_pre]:border [&_pre]:p-3 [&_pre]:text-[12px]",
-                        "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
                         "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5",
                         "[&_li]:my-0.5 [&_li]:marker:text-muted-foreground/60",
-                        "[&_hr]:border-border/50 [&_hr]:my-4",
-                        "[&_blockquote]:border-l-2 [&_blockquote]:border-hermes/40 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_blockquote]:italic",
                         "[&_table]:my-3 [&_table]:text-[12px] [&_table]:border-collapse",
                         "[&_th]:border-border/60 [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium",
                         "[&_td]:border-border/60 [&_td]:border [&_td]:px-2 [&_td]:py-1",
@@ -345,11 +489,8 @@ function Turn({
                 );
 
               default: {
-                // Greek-named progress chips from the graph bridge
                 if (part.type === "data-agent-start") {
                   const key = (part as { data: { key: string } }).data.key;
-                  // If a matching agent-end exists later in the parts list,
-                  // this specialist already finished — render as complete.
                   const done = message.parts
                     .slice(i + 1)
                     .some(
@@ -365,9 +506,7 @@ function Turn({
                     />
                   );
                 }
-                if (part.type === "data-agent-end") {
-                  return null; // paired with the start above
-                }
+                if (part.type === "data-agent-end") return null;
                 if (part.type === "data-herald-routing") {
                   const { reason } = (
                     part as { data: { reason: string } }
@@ -410,20 +549,19 @@ function Turn({
   );
 }
 
-/**
- * Parse the AI SDK's Server-Sent-Events response body into a stream of
- * UIMessageChunk objects, which `readUIMessageStream` expects. Format is:
- *   data: {"type":"text-delta",...}\n\n
- * Tolerant of empty frames and the [DONE] sentinel (OpenAI-style; the AI
- * SDK doesn't emit it today, but parsing cost is nil).
- */
+function formatSessionDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function sseBytesToChunks<T>(
   body: ReadableStream<Uint8Array>,
 ): ReadableStream<T> {
   let buffer = "";
-  // Decode bytes → string, then split on SSE frame boundaries. The Web
-  // Streams types between lib.dom and the `ai` package drift slightly in
-  // newer TS versions; the narrow cast below is purely to silence that.
   const textStream = body.pipeThrough(
     new TextDecoderStream() as unknown as ReadableWritablePair<
       string,
@@ -445,7 +583,7 @@ function sseBytesToChunks<T>(
             try {
               controller.enqueue(JSON.parse(payload) as T);
             } catch {
-              // ignore malformed chunks
+              // Ignore malformed chunks.
             }
           }
         }
@@ -453,3 +591,4 @@ function sseBytesToChunks<T>(
     }),
   );
 }
+

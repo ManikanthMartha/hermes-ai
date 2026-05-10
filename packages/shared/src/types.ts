@@ -16,6 +16,26 @@ export interface ToolCall {
   result?: unknown;
 }
 
-export type MemoryCategory = "preference" | "decision" | "fact" | "relationship";
+export type MemoryCategory =
+  | "profile"
+  | "preference"
+  | "decision"
+  | "fact"
+  | "relationship"
+  | "writing_style"
+  | "project_context"
+  | "recurring_event"
+  | "instruction";
 
-export type MemorySource = "conversation" | "extraction" | "document";
+export type MemorySource =
+  | "chat"
+  | "conversation"
+  | "extraction"
+  | "document"
+  | "gmail"
+  | "calendar"
+  | "slack"
+  | "github"
+  | "linear"
+  | "sentry"
+  | "manual";

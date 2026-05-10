@@ -4,6 +4,7 @@ import {
   START,
   MemorySaver,
 } from "@langchain/langgraph";
+import { ContextPacker, DEFAULT_USER_ID } from "@hermes/memory";
 import { buildCommsAgent } from "./agents/comms.js";
 import { buildCodeAgent } from "./agents/code.js";
 import { buildOpsAgent } from "./agents/ops.js";
@@ -39,9 +40,26 @@ export async function buildGraph() {
     buildOpsAgent(),
   ]);
 
-  const plannerNode = async (state: typeof MessagesAnnotation.State) => {
-    const out = await runHerald(state.messages);
-    return routingToCommand(out, state.messages);
+  const plannerNode = async (
+    state: typeof MessagesAnnotation.State,
+    config?: { configurable?: { thread_id?: string } },
+  ) => {
+    const latestUser = [...state.messages]
+      .reverse()
+      .find((m) => m.getType() === "human" && typeof m.content === "string");
+    const threadId = config?.configurable?.thread_id ?? "default-thread";
+    const query =
+      typeof latestUser?.content === "string" ? latestUser.content : "";
+    const packed = query
+      ? await new ContextPacker(DEFAULT_USER_ID).pack({
+          threadId,
+          query,
+          specialist: "planner",
+          tokenBudget: 4_000,
+        })
+      : null;
+    const out = await runHerald(state.messages, packed?.text);
+    return routingToCommand(out, state.messages, packed?.text);
   };
 
   const graph = new StateGraph(MessagesAnnotation)

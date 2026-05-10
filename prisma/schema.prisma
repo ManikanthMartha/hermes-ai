@@ -18,15 +18,32 @@ datasource db {
 
 model Memory {
   id         String                       @id @default(uuid()) @db.Uuid
+  userId     String                       @default("local-user") @db.VarChar(100) @map("user_id")
   content    String
   source     String?                      @db.VarChar(50)
   category   String?                      @db.VarChar(50)
+  subject    String?                      @db.VarChar(200)
+  predicate  String?                      @db.VarChar(100)
+  value      String?
+  sourceType String?                      @db.VarChar(50) @map("source_type")
+  sourceId   String?                      @db.VarChar(200) @map("source_id")
+  confidence Float                        @default(0.7)
+  status     String                       @default("active") @db.VarChar(30)
+  validFrom  DateTime?                    @map("valid_from")
+  validUntil DateTime?                    @map("valid_until")
+  supersedesMemoryId String?              @db.Uuid @map("supersedes_memory_id")
   metadata   Json                         @default("{}")
   embedding  Unsupported("vector(1536)")?
   createdAt  DateTime                     @default(now()) @map("created_at")
   updatedAt  DateTime                     @updatedAt       @map("updated_at")
 
+  supersedes Memory?  @relation("MemorySupersession", fields: [supersedesMemoryId], references: [id])
+  supersededBy Memory[] @relation("MemorySupersession")
+
+  @@index([userId])
   @@index([category])
+  @@index([status])
+  @@index([subject, predicate])
   @@map("memories")
 }
 
@@ -57,11 +74,14 @@ model DocumentChunk {
 
 model Conversation {
   id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @default("local-user") @db.VarChar(100) @map("user_id")
   title     String?
+  summary   String?
   messages  Message[]
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt       @map("updated_at")
 
+  @@index([userId])
   @@map("conversations")
 }
 
@@ -71,6 +91,7 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           String       @db.VarChar(20)
   content        String
+  name           String?      @db.VarChar(100)
   toolCalls      Json?        @map("tool_calls")
   metadata       Json         @default("{}")
   createdAt      DateTime     @default(now()) @map("created_at")

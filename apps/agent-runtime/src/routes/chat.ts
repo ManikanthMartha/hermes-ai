@@ -6,6 +6,12 @@ import {
 } from "ai";
 import { HumanMessage } from "@langchain/core/messages";
 import { logger } from "@hermes/shared";
+import {
+  ConversationStore,
+  DEFAULT_USER_ID,
+  handleMemoryCommand,
+  scheduleMemoryExtraction,
+} from "@hermes/memory";
 import { getGraph } from "../graph.js";
 import { pumpGraphToWriter } from "./chat-bridge.js";
 
@@ -46,6 +52,57 @@ export async function handleChat(req: Request, res: Response) {
     return;
   }
 
+  const conversation = new ConversationStore(DEFAULT_USER_ID);
+  await conversation
+    .appendMessage(threadId, {
+      role: "user",
+      content: latestText,
+      metadata: { source: "chat" },
+    })
+    .catch((err) => {
+      logger.warn({ err, threadId }, "failed to persist user message");
+    });
+
+  try {
+    const memoryCommand = await handleMemoryCommand(latestText, DEFAULT_USER_ID);
+    if (memoryCommand.handled) {
+      const responseText = memoryCommand.response ?? "Done.";
+      await conversation
+        .appendMessage(threadId, {
+          role: "assistant",
+          content: responseText,
+          metadata: { source: "memory-command" },
+        })
+        .catch((err) => {
+          logger.warn({ err, threadId }, "failed to persist memory-command response");
+        });
+
+      const stream = createUIMessageStream({
+        async execute({ writer }) {
+          const id = `memory-${Date.now()}`;
+          writer.write({ type: "text-start", id });
+          writer.write({ type: "text-delta", id, delta: responseText });
+          writer.write({ type: "text-end", id });
+        },
+      });
+      const response = createUIMessageStreamResponse({ stream });
+      res.status(response.status);
+      response.headers.forEach((v, k) => res.setHeader(k, v));
+      if (response.body) {
+        const reader = response.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+      }
+      res.end();
+      return;
+    }
+  } catch (e) {
+    logger.warn({ err: e, threadId }, "memory command handling failed");
+  }
+
   let graph: Awaited<ReturnType<typeof getGraph>>;
   try {
     graph = await getGraph();
@@ -64,7 +121,19 @@ export async function handleChat(req: Request, res: Response) {
           graph,
           threadId,
           writer,
+          userId: DEFAULT_USER_ID,
           input: { messages: [new HumanMessage(latestText)] },
+        });
+        const recentForExtraction = await conversation
+          .recent(threadId, 6)
+          .catch(() => [{ role: "user", content: latestText }]);
+        scheduleMemoryExtraction({
+          userId: DEFAULT_USER_ID,
+          conversationId: threadId,
+          messages: recentForExtraction.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
         });
       } catch (e) {
         logger.error({ err: e, threadId }, "graph stream failed");

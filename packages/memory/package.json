@@ -17,7 +17,9 @@
     }
   },
   "dependencies": {
-    "@hermes/shared": "workspace:*"
+    "@hermes/shared": "workspace:*",
+    "ai": "^6.0.168",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
