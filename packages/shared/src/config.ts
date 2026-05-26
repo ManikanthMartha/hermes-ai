@@ -8,6 +8,7 @@ const schema = z.object({
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
+  CREDENTIAL_ENCRYPTION_KEY: z.string().optional(),
   PORT: z.coerce.number().default(4000),
 });
 

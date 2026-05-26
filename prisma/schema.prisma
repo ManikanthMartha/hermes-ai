@@ -18,6 +18,7 @@ datasource db {
 
 model Memory {
   id         String                       @id @default(uuid()) @db.Uuid
+  workspaceId String                     @default("00000000-0000-4000-8000-000000000001") @db.Uuid @map("workspace_id")
   userId     String                       @default("local-user") @db.VarChar(100) @map("user_id")
   content    String
   source     String?                      @db.VarChar(50)
@@ -40,6 +41,7 @@ model Memory {
   supersedes Memory?  @relation("MemorySupersession", fields: [supersedesMemoryId], references: [id])
   supersededBy Memory[] @relation("MemorySupersession")
 
+  @@index([workspaceId])
   @@index([userId])
   @@index([category])
   @@index([status])
@@ -74,6 +76,7 @@ model DocumentChunk {
 
 model Conversation {
   id        String    @id @default(uuid()) @db.Uuid
+  workspaceId String  @default("00000000-0000-4000-8000-000000000001") @db.Uuid @map("workspace_id")
   userId    String    @default("local-user") @db.VarChar(100) @map("user_id")
   title     String?
   summary   String?
@@ -81,6 +84,7 @@ model Conversation {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt       @map("updated_at")
 
+  @@index([workspaceId])
   @@index([userId])
   @@map("conversations")
 }
@@ -111,4 +115,283 @@ model Event {
   @@index([source, eventType])
   @@index([processed])
   @@map("events")
+}
+
+model Workspace {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String?  @unique @db.VarChar(120)
+  ownerUserId String   @default("local-user") @db.VarChar(100) @map("owner_user_id")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerUserId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid @map("workspace_id")
+  userId      String   @db.VarChar(100) @map("user_id")
+  role        String   @default("owner") @db.VarChar(40)
+  status      String   @default("active") @db.VarChar(40)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model IntegrationAccount {
+  id                 String    @id @default(uuid()) @db.Uuid
+  workspaceId        String    @db.Uuid @map("workspace_id")
+  provider           String    @db.VarChar(40)
+  status             String    @default("not_connected") @db.VarChar(40)
+  scopes             Json      @default("[]")
+  config             Json      @default("{}")
+  lastSuccessfulSync DateTime? @map("last_successful_sync")
+  lastAttemptedSync  DateTime? @map("last_attempted_sync")
+  failureReason      String?   @map("failure_reason")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, provider])
+  @@index([status])
+  @@map("integration_accounts")
+}
+
+model IntegrationCredential {
+  id                   String   @id @default(uuid()) @db.Uuid
+  workspaceId          String   @db.Uuid @map("workspace_id")
+  integrationAccountId String   @db.Uuid @map("integration_account_id")
+  provider             String   @db.VarChar(40)
+  encryptedPayload     String   @map("encrypted_payload")
+  metadata             Json     @default("{}")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([workspaceId, provider])
+  @@index([integrationAccountId])
+  @@map("integration_credentials")
+}
+
+model IntegrationScope {
+  id                   String   @id @default(uuid()) @db.Uuid
+  workspaceId          String   @db.Uuid @map("workspace_id")
+  integrationAccountId String   @db.Uuid @map("integration_account_id")
+  provider             String   @db.VarChar(40)
+  scope                String
+  enabled              Boolean  @default(true)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, provider, scope])
+  @@index([integrationAccountId])
+  @@map("integration_scopes")
+}
+
+model SourceObject {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid @map("workspace_id")
+  provider       String    @db.VarChar(40)
+  objectType     String    @db.VarChar(80) @map("object_type")
+  externalId     String    @db.VarChar(240) @map("external_id")
+  title          String?
+  url            String?
+  sourceUserId   String?   @db.VarChar(160) @map("source_user_id")
+  occurredAt     DateTime? @map("occurred_at")
+  rawPayload     Json      @default("{}") @map("raw_payload")
+  normalized     Json      @default("{}")
+  contentHash    String?   @db.VarChar(120) @map("content_hash")
+  lastObservedAt DateTime  @default(now()) @map("last_observed_at")
+  metadata       Json      @default("{}")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, provider, objectType, externalId])
+  @@index([workspaceId, provider, objectType])
+  @@index([contentHash])
+  @@map("source_objects")
+}
+
+model SyncRun {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid @map("workspace_id")
+  provider       String    @db.VarChar(40)
+  syncType       String    @db.VarChar(80) @map("sync_type")
+  status         String    @default("running") @db.VarChar(40)
+  cursorBefore   String?   @map("cursor_before")
+  cursorAfter    String?   @map("cursor_after")
+  objectsSeen    Int       @default(0) @map("objects_seen")
+  objectsChanged Int       @default(0) @map("objects_changed")
+  failureReason  String?   @map("failure_reason")
+  startedAt      DateTime  @default(now()) @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  metadata       Json      @default("{}")
+
+  @@index([workspaceId, provider, status])
+  @@index([startedAt])
+  @@map("sync_runs")
+}
+
+model Signal {
+  id             String   @id @default(uuid()) @db.Uuid
+  workspaceId    String   @db.Uuid @map("workspace_id")
+  signalType     String   @db.VarChar(80) @map("signal_type")
+  title          String
+  summary        String?
+  sourceIds      String[] @default([]) @map("source_ids")
+  confidence     Float    @default(0.5)
+  status         String   @default("candidate") @db.VarChar(40)
+  idempotencyKey String?  @db.VarChar(200) @map("idempotency_key")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, signalType])
+  @@index([status])
+  @@map("signals")
+}
+
+model ActionItem {
+  id                  String    @id @default(uuid()) @db.Uuid
+  workspaceId         String    @db.Uuid @map("workspace_id")
+  ownerUserId         String    @default("local-user") @db.VarChar(100) @map("owner_user_id")
+  actionType          String    @db.VarChar(80) @map("action_type")
+  title               String
+  summary             String?
+  reason              String?
+  impactLevel         String    @default("medium") @db.VarChar(40) @map("impact_level")
+  riskLevel           String    @default("medium") @db.VarChar(40) @map("risk_level")
+  confidenceScore     Float?    @map("confidence_score")
+  sourceIds           String[]  @default([]) @map("source_ids")
+  draftPayload        Json?     @map("draft_payload")
+  approvalRequired    Boolean   @default(true) @map("approval_required")
+  status              String    @default("detected") @db.VarChar(40)
+  dueAt               DateTime? @map("due_at")
+  createdFromSignalId String?   @db.Uuid @map("created_from_signal_id")
+  idempotencyKey      String    @db.VarChar(200) @map("idempotency_key")
+  metadata            Json      @default("{}")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, status])
+  @@index([ownerUserId])
+  @@map("action_items")
+}
+
+model ActionDraft {
+  id           String   @id @default(uuid()) @db.Uuid
+  workspaceId  String   @db.Uuid @map("workspace_id")
+  actionItemId String   @db.Uuid @map("action_item_id")
+  draftType    String   @db.VarChar(80) @map("draft_type")
+  payload      Json
+  status       String   @default("active") @db.VarChar(40)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([workspaceId, actionItemId])
+  @@index([status])
+  @@map("action_drafts")
+}
+
+model Approval {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @db.Uuid @map("workspace_id")
+  actionItemId    String    @db.Uuid @map("action_item_id")
+  requestedBy     String    @default("system") @db.VarChar(100) @map("requested_by")
+  decidedBy       String?   @db.VarChar(100) @map("decided_by")
+  status          String    @default("pending") @db.VarChar(40)
+  originalPayload Json?     @map("original_payload")
+  finalPayload    Json?     @map("final_payload")
+  decisionReason  String?   @map("decision_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  decidedAt       DateTime? @map("decided_at")
+
+  @@index([workspaceId, status])
+  @@index([actionItemId])
+  @@map("approvals")
+}
+
+model Execution {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid @map("workspace_id")
+  actionItemId   String    @db.Uuid @map("action_item_id")
+  provider       String    @db.VarChar(40)
+  toolName       String    @db.VarChar(120) @map("tool_name")
+  payload        Json
+  status         String    @default("queued") @db.VarChar(40)
+  providerResult Json?     @map("provider_result")
+  failureReason  String?   @map("failure_reason")
+  executedAt     DateTime? @map("executed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([workspaceId, status])
+  @@index([actionItemId])
+  @@map("executions")
+}
+
+model AuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @db.Uuid @map("workspace_id")
+  actorType     String   @db.VarChar(40) @map("actor_type")
+  actorId       String?  @db.VarChar(100) @map("actor_id")
+  eventType     String   @db.VarChar(100) @map("event_type")
+  objectType    String   @db.VarChar(80) @map("object_type")
+  objectId      String?  @db.VarChar(120) @map("object_id")
+  sourceIds     String[] @default([]) @map("source_ids")
+  beforeState   Json?    @map("before_state")
+  afterState    Json?    @map("after_state")
+  failureReason String?  @map("failure_reason")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([workspaceId, eventType])
+  @@index([objectType, objectId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model JobRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid @map("workspace_id")
+  queueName   String    @db.VarChar(80) @map("queue_name")
+  jobName     String    @db.VarChar(120) @map("job_name")
+  jobId       String?   @db.VarChar(120) @map("job_id")
+  status      String    @default("queued") @db.VarChar(40)
+  input       Json      @default("{}")
+  result      Json?
+  error       String?
+  attempts    Int       @default(0)
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([workspaceId, status])
+  @@index([queueName, jobName])
+  @@map("job_runs")
+}
+
+model FailureEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid @map("workspace_id")
+  severity    String    @default("medium") @db.VarChar(40)
+  source      String    @db.VarChar(80)
+  eventType   String    @db.VarChar(100) @map("event_type")
+  objectType  String?   @db.VarChar(80) @map("object_type")
+  objectId    String?   @db.VarChar(120) @map("object_id")
+  message     String
+  details     Json      @default("{}")
+  status      String    @default("open") @db.VarChar(40)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  resolvedAt  DateTime? @map("resolved_at")
+
+  @@index([workspaceId, status])
+  @@index([source, eventType])
+  @@map("failure_events")
 }
