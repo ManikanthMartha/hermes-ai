@@ -40,7 +40,7 @@ export async function proxyToRuntime(req: Request, path: string) {
   if (upstream.status >= 300 && upstream.status < 400) {
     const location = upstream.headers.get("location");
     if (location) {
-      return Response.redirect(new URL(location, req.url), upstream.status);
+      return Response.redirect(redirectUrl(location, req.url), upstream.status);
     }
   }
 
@@ -48,4 +48,10 @@ export async function proxyToRuntime(req: Request, path: string) {
     status: upstream.status,
     headers: upstream.headers,
   });
+}
+
+function redirectUrl(location: string, requestUrl: string): URL {
+  const appOrigin =
+    process.env.APP_URL ?? process.env.BETTER_AUTH_URL ?? new URL(requestUrl).origin;
+  return new URL(location, appOrigin);
 }
