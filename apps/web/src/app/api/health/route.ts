@@ -1,8 +1,15 @@
-import { proxyToRuntime } from "@/lib/runtime-proxy";
-
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  return proxyToRuntime(req, "/api/health");
-}
+const AGENT_RUNTIME_URL =
+  process.env.AGENT_RUNTIME_URL ?? "http://localhost:4000";
 
+export async function GET() {
+  const upstream = await fetch(`${AGENT_RUNTIME_URL}/api/health`, {
+    cache: "no-store",
+  });
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: upstream.headers,
+  });
+}

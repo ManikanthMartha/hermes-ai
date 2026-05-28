@@ -6,10 +6,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 // querying we just call Sentry's REST API directly with fetch + Auth Token.
 // https://docs.sentry.io/api/
 
-const AUTH = process.env.SENTRY_AUTH_TOKEN;
-const ORG = process.env.SENTRY_ORG;
-const PROJECT = process.env.SENTRY_PROJECT;
 const BASE = "https://sentry.io/api/0";
+
+export type SentryCredential = {
+  accessToken?: string;
+  account?: Record<string, unknown>;
+};
+
+export type SentryToolOptions = {
+  getCredential: () => Promise<SentryCredential>;
+};
 
 const out = (v: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(v) }],
@@ -19,10 +25,28 @@ const err = (msg: string) => ({
   isError: true,
 });
 
-function requireSentry() {
-  if (!AUTH) throw new Error("SENTRY_AUTH_TOKEN not set");
-  if (!ORG) throw new Error("SENTRY_ORG not set");
-  return { auth: AUTH, org: ORG, project: PROJECT };
+async function requireSentry(options: SentryToolOptions) {
+  const credential = await options.getCredential();
+  if (!credential.accessToken) {
+    throw new Error("Sentry is connected but did not return a usable access token");
+  }
+  const account = credential.account ?? {};
+  const configuredOrg =
+    stringValue(account.orgSlug) ??
+    stringValue(account.org) ??
+    stringValue(account.slug);
+  const org = configuredOrg ?? (await firstSentryOrg(credential.accessToken));
+  if (!org) {
+    throw new Error("Sentry is connected but no accessible organization was found");
+  }
+  return {
+    auth: credential.accessToken,
+    org,
+    project:
+      stringValue(account.projectSlug) ??
+      stringValue(account.project) ??
+      undefined,
+  };
 }
 
 async function sentryFetch<T>(path: string, auth: string): Promise<T> {
@@ -45,24 +69,24 @@ async function sentryFetch<T>(path: string, auth: string): Promise<T> {
  * exist in this org), we return null and the caller falls back to Sentry's
  * `project:slug` search-query operator, which works on name/slug matching.
  */
-let projectIdCache: Record<string, string> | null = null;
+let projectIdCache: Record<string, Record<string, string>> = {};
 async function resolveProjectId(
   slug: string,
   auth: string,
   org: string,
 ): Promise<string | null> {
-  if (!projectIdCache) {
+  if (!projectIdCache[org]) {
     const projects = await sentryFetch<Array<{ id: string; slug: string }>>(
       `/organizations/${org}/projects/`,
       auth,
     );
-    projectIdCache = {};
-    for (const p of projects) projectIdCache[p.slug] = p.id;
+    projectIdCache[org] = {};
+    for (const p of projects) projectIdCache[org][p.slug] = p.id;
   }
-  return projectIdCache[slug] ?? null;
+  return projectIdCache[org][slug] ?? null;
 }
 
-export function registerSentryTools(server: McpServer) {
+export function registerSentryTools(server: McpServer, options: SentryToolOptions) {
   server.registerTool(
     "list_issues",
     {
@@ -86,7 +110,7 @@ export function registerSentryTools(server: McpServer) {
     },
     async ({ query, project, limit }) => {
       try {
-        const { auth, org, project: defaultProject } = requireSentry();
+        const { auth, org, project: defaultProject } = await requireSentry(options);
         const proj = project ?? defaultProject;
         let finalQuery = query;
         const params = new URLSearchParams({ limit: String(limit) });
@@ -153,7 +177,7 @@ export function registerSentryTools(server: McpServer) {
     },
     async ({ issue_id, limit }) => {
       try {
-        const { auth } = requireSentry();
+        const { auth } = await requireSentry(options);
         const data = await sentryFetch<
           Array<{
             id: string;
@@ -200,7 +224,7 @@ export function registerSentryTools(server: McpServer) {
     },
     async ({ event_id, project }) => {
       try {
-        const { auth, org, project: defaultProject } = requireSentry();
+        const { auth, org, project: defaultProject } = await requireSentry(options);
         const proj = project ?? defaultProject;
         if (!proj) throw new Error("project not provided and SENTRY_PROJECT not set");
         const data = await sentryFetch<{
@@ -270,4 +294,13 @@ export function registerSentryTools(server: McpServer) {
       }
     },
   );
+}
+
+async function firstSentryOrg(auth: string): Promise<string | undefined> {
+  const orgs = await sentryFetch<Array<{ slug?: string }>>("/organizations/", auth);
+  return orgs.find((org) => org.slug)?.slug;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }

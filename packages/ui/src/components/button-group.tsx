@@ -26,7 +26,8 @@ function ButtonGroup({
   className,
   orientation,
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>) {
+}: React.ComponentPropsWithoutRef<"div"> &
+  VariantProps<typeof buttonGroupVariants>) {
   return (
     <div
       role="group"

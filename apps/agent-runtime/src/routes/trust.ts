@@ -1,12 +1,12 @@
 import type { Request, Response } from "express";
 import {
-  DEFAULT_WORKSPACE_ID,
   audit,
   ensureDefaultWorkspace,
   listIntegrationHealth,
   logger,
   prisma,
 } from "@hermes/shared";
+import { requestContext } from "../http/request-context.js";
 
 interface AuditRow {
   id: string;
@@ -38,12 +38,14 @@ interface FailureRow {
   resolvedAt: Date | null;
 }
 
-export async function handleListIntegrations(_req: Request, res: Response) {
+export async function handleListIntegrations(req: Request, res: Response) {
   try {
-    const integrations = await listIntegrationHealth();
+    const context = requestContext(req);
+    const { workspaceId } = context;
+    const integrations = await listIntegrationHealth(context);
 
     res.json({
-      workspaceId: DEFAULT_WORKSPACE_ID,
+      workspaceId,
       integrations: integrations.map((row) => {
         const config = displaySafeIntegrationConfig(row.provider, row.config);
         const simulated = config.connectorMode === "prototype";
@@ -71,8 +73,8 @@ export async function handleListIntegrations(_req: Request, res: Response) {
 
 export async function handleListAudit(req: Request, res: Response) {
   try {
-    const workspaceId = DEFAULT_WORKSPACE_ID;
-    await ensureDefaultWorkspace({ workspaceId });
+    const { workspaceId } = requestContext(req);
+    await ensureDefaultWorkspace(requestContext(req));
     const limit = clampLimit(singleQueryValue(req.query.limit), 100);
     const rows = await prisma.$queryRaw<AuditRow[]>`
       SELECT
@@ -101,11 +103,13 @@ export async function handleListAudit(req: Request, res: Response) {
   }
 }
 
-export async function handleCreateAuditTest(_req: Request, res: Response) {
+export async function handleCreateAuditTest(req: Request, res: Response) {
   try {
+    const { workspaceId, userId } = requestContext(req);
     await audit({
-      workspaceId: DEFAULT_WORKSPACE_ID,
-      actorType: "system",
+      workspaceId,
+      actorType: "user",
+      actorId: userId,
       eventType: "audit.test",
       objectType: "trust_center",
       objectId: "phase-a",
@@ -121,8 +125,8 @@ export async function handleCreateAuditTest(_req: Request, res: Response) {
 
 export async function handleListFailures(req: Request, res: Response) {
   try {
-    const workspaceId = DEFAULT_WORKSPACE_ID;
-    await ensureDefaultWorkspace({ workspaceId });
+    const { workspaceId } = requestContext(req);
+    await ensureDefaultWorkspace(requestContext(req));
     const status = singleQueryValue(req.query.status);
     const limit = clampLimit(singleQueryValue(req.query.limit), 100);
     const rows = await prisma.$queryRaw<FailureRow[]>`
@@ -198,7 +202,6 @@ function displaySafeIntegrationConfig(
     stored.connectorMode === "env" ? "env" : simulated ? "prototype" : "real";
   return {
     developerConfigured:
-      providerEnvConfigured(provider) ||
       (!simulated && stored.developerConfigured === true),
     connectorMode,
     simulated,
@@ -212,28 +215,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function safeFailureMessage(row: FailureRow): string {
   const source = row.source ? `${row.source} ` : "";
   return `${source}${row.eventType} needs attention.`;
-}
-
-function providerEnvConfigured(provider: string): boolean {
-  switch (provider) {
-    case "gmail":
-    case "calendar":
-      return Boolean(
-        process.env.GOOGLE_CLIENT_ID &&
-          process.env.GOOGLE_CLIENT_SECRET &&
-          process.env.GOOGLE_REFRESH_TOKEN,
-      );
-    case "slack":
-      return Boolean(process.env.SLACK_BOT_TOKEN);
-    case "github":
-      return Boolean(process.env.GITHUB_TOKEN);
-    case "linear":
-      return Boolean(process.env.LINEAR_API_KEY);
-    case "sentry":
-      return Boolean(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG);
-    default:
-      return false;
-  }
 }
 
 function singleQueryValue(value: unknown): string | undefined {

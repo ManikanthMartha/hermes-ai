@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { ActorType } from "./action-os.js";
-import { DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID } from "./action-os.js";
 import { prisma } from "./db.js";
-import { ensureDefaultWorkspace } from "./workspace.js";
 
 export interface AuditInput {
-  workspaceId?: string;
+  workspaceId: string;
   actorType: ActorType;
   actorId?: string;
   eventType: string;
@@ -18,7 +16,7 @@ export interface AuditInput {
 }
 
 export interface FailureInput {
-  workspaceId?: string;
+  workspaceId: string;
   severity?: "low" | "medium" | "high" | "critical";
   source: string;
   eventType: string;
@@ -29,9 +27,6 @@ export interface FailureInput {
 }
 
 export async function audit(input: AuditInput): Promise<void> {
-  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  await ensureDefaultWorkspace({ workspaceId, userId: DEFAULT_USER_ID });
-
   await prisma.$executeRaw`
     INSERT INTO audit_logs (
       id,
@@ -49,7 +44,7 @@ export async function audit(input: AuditInput): Promise<void> {
     )
     VALUES (
       ${randomUUID()}::uuid,
-      ${workspaceId}::uuid,
+      ${input.workspaceId}::uuid,
       ${input.actorType},
       ${input.actorId ?? null},
       ${input.eventType},
@@ -65,8 +60,6 @@ export async function audit(input: AuditInput): Promise<void> {
 }
 
 export async function recordFailure(input: FailureInput): Promise<void> {
-  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  await ensureDefaultWorkspace({ workspaceId, userId: DEFAULT_USER_ID });
   const id = randomUUID();
 
   await prisma.$executeRaw`
@@ -85,7 +78,7 @@ export async function recordFailure(input: FailureInput): Promise<void> {
     )
     VALUES (
       ${id}::uuid,
-      ${workspaceId}::uuid,
+      ${input.workspaceId}::uuid,
       ${input.severity ?? "medium"},
       ${input.source},
       ${input.eventType},
@@ -99,7 +92,7 @@ export async function recordFailure(input: FailureInput): Promise<void> {
   `;
 
   await audit({
-    workspaceId,
+    workspaceId: input.workspaceId,
     actorType: "system",
     eventType: "failure.recorded",
     objectType: "failure_event",

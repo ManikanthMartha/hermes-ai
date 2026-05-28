@@ -2,16 +2,20 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { google, type gmail_v1 } from "googleapis";
 
-// Gmail API via googleapis. Auth is a one-time OAuth2 flow — the user runs
-// `pnpm gmail:auth` once, pastes the refresh token into .env, and every
-// subsequent tool call exchanges it for a short-lived access token in the
-// background (the googleapis client handles the refresh automatically).
-//
-// All tools are scoped to `gmail.modify` — read + send, never delete.
+// Gmail API via googleapis. User tokens come from the connection center; only
+// OAuth app credentials live in env. All tools are scoped to `gmail.modify`:
+// read + send, never delete.
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
+export type GmailCredential = {
+  accessToken?: string;
+  refreshToken?: string;
+};
+
+export type GmailToolOptions = {
+  getCredential: () => Promise<GmailCredential>;
+};
 
 const out = (v: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(v) }],
@@ -21,18 +25,22 @@ const err = (msg: string) => ({
   isError: true,
 });
 
-let _gmail: gmail_v1.Gmail | null = null;
-function requireGmail(): gmail_v1.Gmail {
-  if (_gmail) return _gmail;
-  if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
+async function requireGmail(options: GmailToolOptions): Promise<gmail_v1.Gmail> {
+  const credential = await options.getCredential();
+  if (!CLIENT_ID || !CLIENT_SECRET) {
     throw new Error(
-      "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN not set — run `pnpm gmail:auth`",
+      "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not configured for Gmail OAuth",
     );
   }
+  if (!credential.refreshToken && !credential.accessToken) {
+    throw new Error("Gmail is connected but did not return a usable token");
+  }
   const auth = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET);
-  auth.setCredentials({ refresh_token: REFRESH_TOKEN });
-  _gmail = google.gmail({ version: "v1", auth });
-  return _gmail;
+  auth.setCredentials({
+    refresh_token: credential.refreshToken,
+    access_token: credential.accessToken,
+  });
+  return google.gmail({ version: "v1", auth });
 }
 
 /** Pull the common header fields off a message payload. */
@@ -135,7 +143,7 @@ function buildRfc822({
   return Buffer.from(lines.join("\r\n"), "utf-8").toString("base64url");
 }
 
-export function registerGmailTools(server: McpServer) {
+export function registerGmailTools(server: McpServer, options: GmailToolOptions) {
   server.registerTool(
     "list_messages",
     {
@@ -159,7 +167,7 @@ export function registerGmailTools(server: McpServer) {
     },
     async ({ query, maxResults, labelIds }) => {
       try {
-        const gmail = requireGmail();
+        const gmail = await requireGmail(options);
         const list = await gmail.users.messages.list({
           userId: "me",
           q: query,
@@ -199,7 +207,7 @@ export function registerGmailTools(server: McpServer) {
     },
     async ({ id }) => {
       try {
-        const gmail = requireGmail();
+        const gmail = await requireGmail(options);
         const res = await gmail.users.messages.get({
           userId: "me",
           id,
@@ -236,7 +244,7 @@ export function registerGmailTools(server: McpServer) {
     },
     async ({ id }) => {
       try {
-        const gmail = requireGmail();
+        const gmail = await requireGmail(options);
         const res = await gmail.users.threads.get({
           userId: "me",
           id,
@@ -272,7 +280,7 @@ export function registerGmailTools(server: McpServer) {
     },
     async ({ count }) => {
       try {
-        const gmail = requireGmail();
+        const gmail = await requireGmail(options);
         const list = await gmail.users.messages.list({
           userId: "me",
           q: "in:sent",
@@ -333,7 +341,7 @@ export function registerGmailTools(server: McpServer) {
     },
     async ({ to, subject, body, cc, bcc, threadId, _action }) => {
       try {
-        const gmail = requireGmail();
+        const gmail = await requireGmail(options);
 
         // For replies, pull In-Reply-To + References from the thread's last
         // message so the reply threads correctly in Gmail / other clients.

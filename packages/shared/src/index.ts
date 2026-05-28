@@ -9,6 +9,7 @@ export * from "./action-os.js";
 export * from "./action-schemas.js";
 export * from "./audit.js";
 export * from "./credentials.js";
+export * from "./connection-credentials.js";
 export * from "./idempotency.js";
 export * from "./integration-health.js";
 export * from "./workspace.js";

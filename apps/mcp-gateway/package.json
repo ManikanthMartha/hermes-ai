@@ -1,0 +1,32 @@
+{
+  "name": "@hermes/mcp-gateway",
+  "version": "1.0.0",
+  "description": "User-scoped hosted MCP gateway for Hermes connectors",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "type-check": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hermes/mcp-github": "workspace:*",
+    "@hermes/mcp-gmail": "workspace:*",
+    "@hermes/mcp-linear": "workspace:*",
+    "@hermes/mcp-sentry": "workspace:*",
+    "@hermes/mcp-slack": "workspace:*",
+    "@hermes/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

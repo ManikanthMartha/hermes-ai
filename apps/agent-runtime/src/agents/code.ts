@@ -1,4 +1,5 @@
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import type { WorkspaceContext } from "@hermes/shared";
 import { chatModels } from "@hermes/shared/llm";
 import { getToolsForSpecialist } from "./mcp.js";
 import { gateWrites } from "./approval.js";
@@ -23,9 +24,9 @@ You are invoked BECAUSE there's a GitHub or Linear task to do. Do not greet, do 
 - **Do your GitHub/Linear part only. Say nothing about other specialists or scope.** Herald dispatches the other agents in parallel/sequence — your response should not mention "out of scope" or "ask Iris/Argus". That's redundant noise.
 - If an approval is rejected, stop. Don't retry.`;
 
-export async function buildCodeAgent() {
+export async function buildCodeAgent(context: WorkspaceContext) {
   const tools = gateWrites(
-    await getToolsForSpecialist(["github", "linear"]),
+    await getToolsForSpecialist(["github", "linear"], context),
   );
   return createReactAgent({
     llm: chatModels.fast,

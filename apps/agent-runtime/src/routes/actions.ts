@@ -6,12 +6,12 @@ import {
   audit,
   createIdempotencyKey,
   createActionSchema,
-  DEFAULT_USER_ID,
   ensureDefaultWorkspace,
   logger,
   prisma,
   snoozeActionSchema,
 } from "@hermes/shared";
+import { requestContext } from "../http/request-context.js";
 
 const updateActionSchema = z.object({
   title: z.string().trim().min(1).optional(),
@@ -66,7 +66,7 @@ const TERMINAL_STATUSES = new Set([
 
 export async function handleListActions(req: Request, res: Response) {
   try {
-    const { workspaceId } = await ensureDefaultWorkspace();
+    const { workspaceId } = await ensureDefaultWorkspace(requestContext(req));
     const status = singleQueryValue(req.query.status);
     const limit = clampLimit(singleQueryValue(req.query.limit), 100);
 
@@ -114,7 +114,7 @@ export async function handleCreateAction(req: Request, res: Response) {
   }
 
   try {
-    const { workspaceId, userId } = await ensureDefaultWorkspace();
+    const { workspaceId, userId } = await ensureDefaultWorkspace(requestContext(req));
     const input = parsed.data;
     const dueAt = parseOptionalDate(input.dueAt);
     const status =
@@ -231,7 +231,7 @@ export async function handleCreateAction(req: Request, res: Response) {
     await audit({
       workspaceId,
       actorType: "user",
-      actorId: DEFAULT_USER_ID,
+      actorId: userId,
       eventType: "action.upserted",
       objectType: "action_item",
       objectId: action.id,
@@ -253,7 +253,7 @@ export async function handleCreateAction(req: Request, res: Response) {
 
 export async function handleGetAction(req: Request, res: Response) {
   try {
-    const { workspaceId } = await ensureDefaultWorkspace();
+    const { workspaceId } = await ensureDefaultWorkspace(requestContext(req));
     const id = requireParam(req, "id");
     const action = await getAction(workspaceId, id);
     if (!action) {
@@ -275,7 +275,7 @@ export async function handleUpdateAction(req: Request, res: Response) {
   }
 
   try {
-    const { workspaceId } = await ensureDefaultWorkspace();
+    const { workspaceId, userId } = await ensureDefaultWorkspace(requestContext(req));
     const id = requireParam(req, "id");
     const before = await getAction(workspaceId, id);
     if (!before) {
@@ -334,7 +334,7 @@ export async function handleUpdateAction(req: Request, res: Response) {
     await audit({
       workspaceId,
       actorType: "user",
-      actorId: DEFAULT_USER_ID,
+      actorId: userId,
       eventType: "action.updated",
       objectType: "action_item",
       objectId: id,
@@ -365,7 +365,7 @@ export async function handleSnoozeAction(req: Request, res: Response) {
   }
 
   try {
-    const { workspaceId } = await ensureDefaultWorkspace();
+    const { workspaceId, userId } = await ensureDefaultWorkspace(requestContext(req));
     const id = requireParam(req, "id");
     const snoozedUntil = parseDate(parsed.data.snoozedUntil, "snoozedUntil");
     const before = await getAction(workspaceId, id);
@@ -413,7 +413,7 @@ export async function handleSnoozeAction(req: Request, res: Response) {
     await audit({
       workspaceId,
       actorType: "user",
-      actorId: DEFAULT_USER_ID,
+      actorId: userId,
       eventType: "action.snoozed",
       objectType: "action_item",
       objectId: id,
@@ -438,7 +438,7 @@ export async function handleDelegateAction(req: Request, res: Response) {
   }
 
   try {
-    const { workspaceId } = await ensureDefaultWorkspace();
+    const { workspaceId, userId } = await ensureDefaultWorkspace(requestContext(req));
     const id = requireParam(req, "id");
     const before = await getAction(workspaceId, id);
     if (!before) {
@@ -490,7 +490,7 @@ export async function handleDelegateAction(req: Request, res: Response) {
     await audit({
       workspaceId,
       actorType: "user",
-      actorId: DEFAULT_USER_ID,
+      actorId: userId,
       eventType: "action.delegated",
       objectType: "action_item",
       objectId: id,
@@ -516,7 +516,7 @@ export async function handleDelegateAction(req: Request, res: Response) {
 
 export async function handleGetActionAudit(req: Request, res: Response) {
   try {
-    const { workspaceId } = await ensureDefaultWorkspace();
+    const { workspaceId } = await ensureDefaultWorkspace(requestContext(req));
     const id = requireParam(req, "id");
     const action = await getAction(workspaceId, id);
     if (!action) {
@@ -587,7 +587,7 @@ async function decideAction(
   }
 
   try {
-    const { workspaceId } = await ensureDefaultWorkspace();
+    const { workspaceId, userId } = await ensureDefaultWorkspace(requestContext(req));
     const id = requireParam(req, "id");
     const before = await getAction(workspaceId, id);
     if (!before) {
@@ -659,7 +659,7 @@ async function decideAction(
           ${workspaceId}::uuid,
           ${id}::uuid,
           'system',
-          ${DEFAULT_USER_ID},
+          ${userId},
           ${status},
           ${toJson(before.draftPayload)}::jsonb,
           ${toJson(finalPayload)}::jsonb,
@@ -675,7 +675,7 @@ async function decideAction(
     await audit({
       workspaceId,
       actorType: "user",
-      actorId: DEFAULT_USER_ID,
+      actorId: userId,
       eventType: `action.${status}`,
       objectType: "action_item",
       objectId: id,

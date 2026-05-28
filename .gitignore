@@ -63,3 +63,7 @@ venv/
 coverage/
 *.tgz
 .cache/
+
+
+apps/launch-video
+apps/launch-video-hyperframes

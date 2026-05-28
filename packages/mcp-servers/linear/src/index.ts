@@ -7,7 +7,11 @@ import { registerLinearTools } from "./tools.js";
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: "linear", version: "0.1.0" });
-  registerLinearTools(server);
+  registerLinearTools(server, {
+    getCredential: async () => {
+      throw new Error("Use @hermes/mcp-gateway for user-scoped Linear access");
+    },
+  });
   return server;
 }
 
@@ -38,11 +42,11 @@ app.get("/mcp", (_req, res) => {
 
 const port = Number(process.env.MCP_LINEAR_PORT ?? 4102);
 app.listen(port, "127.0.0.1", () => {
-  const configured = !!process.env.LINEAR_API_KEY;
+  const configured = false;
   logger.info(
     { port, configured },
     configured
       ? "mcp-linear listening"
-      : "mcp-linear listening (LINEAR_API_KEY not set — tools will error)",
+      : "mcp-linear legacy server listening without env tokens",
   );
 });

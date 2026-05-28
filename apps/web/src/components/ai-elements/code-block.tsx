@@ -238,7 +238,9 @@ export const highlightCode = (
     })
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then), eslint-plugin-promise(prefer-await-to-callbacks)
     .catch((error) => {
-      console.error("Failed to highlight code:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Failed to highlight code:", error);
+      }
       subscribers.delete(tokensCacheKey);
     });
 

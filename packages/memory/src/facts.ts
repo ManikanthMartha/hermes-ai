@@ -2,11 +2,7 @@ import { embed } from "ai";
 import { randomUUID } from "node:crypto";
 import { logger, prisma, type MemoryCategory } from "@hermes/shared";
 import { embedModel } from "@hermes/shared/llm";
-import {
-  DEFAULT_USER_ID,
-  type MemoryCandidate,
-  type MemoryRecord,
-} from "./types.js";
+import type { MemoryCandidate, MemoryRecord } from "./types.js";
 import { rowToMemory, vectorLiteral } from "./utils.js";
 
 const DEDUPE_THRESHOLD = 0.92;
@@ -19,7 +15,9 @@ export interface Fact {
 }
 
 export class FactMemory {
-  constructor(public readonly userId: string = DEFAULT_USER_ID) {}
+  constructor(public readonly userId: string) {
+    if (!userId) throw new Error("FactMemory requires a user id");
+  }
 
   async upsert(fact: MemoryCandidate): Promise<MemoryRecord> {
     const embedding = await this.tryEmbedText(fact.content);

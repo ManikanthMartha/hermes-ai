@@ -7,7 +7,11 @@ import { registerSentryTools } from "./tools.js";
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: "sentry", version: "0.1.0" });
-  registerSentryTools(server);
+  registerSentryTools(server, {
+    getCredential: async () => {
+      throw new Error("Use @hermes/mcp-gateway for user-scoped Sentry access");
+    },
+  });
   return server;
 }
 
@@ -38,11 +42,11 @@ app.get("/mcp", (_req, res) => {
 
 const port = Number(process.env.MCP_SENTRY_PORT ?? 4103);
 app.listen(port, "127.0.0.1", () => {
-  const configured = !!process.env.SENTRY_AUTH_TOKEN && !!process.env.SENTRY_ORG;
+  const configured = false;
   logger.info(
     { port, configured },
     configured
       ? "mcp-sentry listening"
-      : "mcp-sentry listening (SENTRY_AUTH_TOKEN / SENTRY_ORG not set — tools will error)",
+      : "mcp-sentry legacy server listening without env tokens",
   );
 });

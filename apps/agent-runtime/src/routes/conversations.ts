@@ -1,12 +1,12 @@
 import type { Request, Response } from "express";
 import type { UIMessage } from "ai";
-import { ConversationStore, DEFAULT_USER_ID } from "@hermes/memory";
+import { ConversationStore } from "@hermes/memory";
 import { logger } from "@hermes/shared";
+import { requestContext } from "../http/request-context.js";
 
-const store = new ConversationStore(DEFAULT_USER_ID);
-
-export async function handleListConversations(_req: Request, res: Response) {
+export async function handleListConversations(req: Request, res: Response) {
   try {
+    const store = new ConversationStore(requestContext(req).userId);
     const conversations = await store.list(50);
     res.json({ conversations });
   } catch (err) {
@@ -23,6 +23,7 @@ export async function handleGetConversation(req: Request, res: Response) {
   }
 
   try {
+    const store = new ConversationStore(requestContext(req).userId);
     const messages = await store.allMessages(id);
     res.json({
       id,

@@ -1,4 +1,3 @@
-import { DEFAULT_USER_ID } from "./types.js";
 import { FactMemory } from "./facts.js";
 import { ProfileMemory } from "./profile.js";
 
@@ -9,8 +8,9 @@ export interface MemoryCommandResult {
 
 export async function handleMemoryCommand(
   text: string,
-  userId: string = DEFAULT_USER_ID,
+  userId: string,
 ): Promise<MemoryCommandResult> {
+  if (!userId) throw new Error("handleMemoryCommand requires a user id");
   const trimmed = text.trim();
   const lower = trimmed.toLowerCase();
   const facts = new FactMemory(userId);

@@ -8,12 +8,12 @@ import { HumanMessage } from "@langchain/core/messages";
 import { logger } from "@hermes/shared";
 import {
   ConversationStore,
-  DEFAULT_USER_ID,
   handleMemoryCommand,
   scheduleMemoryExtraction,
 } from "@hermes/memory";
 import { getGraph } from "../graph.js";
 import { pumpGraphToWriter } from "./chat-bridge.js";
+import { requestContext } from "../http/request-context.js";
 
 /**
  * Phase 3 chat handler — drives the LangGraph multi-agent graph instead of
@@ -33,6 +33,8 @@ import { pumpGraphToWriter } from "./chat-bridge.js";
 export async function handleChat(req: Request, res: Response) {
   const body = req.body as { id?: string; messages?: UIMessage[] };
   const threadId = body.id ?? "default-thread";
+  const context = requestContext(req);
+  const { userId } = context;
   const messages = body.messages ?? [];
   const latest = messages.at(-1);
 
@@ -52,7 +54,7 @@ export async function handleChat(req: Request, res: Response) {
     return;
   }
 
-  const conversation = new ConversationStore(DEFAULT_USER_ID);
+  const conversation = new ConversationStore(userId);
   await conversation
     .appendMessage(threadId, {
       role: "user",
@@ -64,7 +66,7 @@ export async function handleChat(req: Request, res: Response) {
     });
 
   try {
-    const memoryCommand = await handleMemoryCommand(latestText, DEFAULT_USER_ID);
+    const memoryCommand = await handleMemoryCommand(latestText, userId);
     if (memoryCommand.handled) {
       const responseText = memoryCommand.response ?? "Done.";
       await conversation
@@ -105,7 +107,7 @@ export async function handleChat(req: Request, res: Response) {
 
   let graph: Awaited<ReturnType<typeof getGraph>>;
   try {
-    graph = await getGraph();
+    graph = await getGraph(context);
   } catch (e) {
     logger.error({ err: e }, "graph build failed");
     res.status(500).json({
@@ -121,14 +123,15 @@ export async function handleChat(req: Request, res: Response) {
           graph,
           threadId,
           writer,
-          userId: DEFAULT_USER_ID,
+          userId,
+          workspaceId: context.workspaceId,
           input: { messages: [new HumanMessage(latestText)] },
         });
         const recentForExtraction = await conversation
           .recent(threadId, 6)
           .catch(() => [{ role: "user", content: latestText }]);
         scheduleMemoryExtraction({
-          userId: DEFAULT_USER_ID,
+          userId,
           conversationId: threadId,
           messages: recentForExtraction.map((m) => ({
             role: m.role,

@@ -7,7 +7,11 @@ import { registerSlackTools } from "./tools.js";
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: "slack", version: "0.1.0" });
-  registerSlackTools(server);
+  registerSlackTools(server, {
+    getCredential: async () => {
+      throw new Error("Use @hermes/mcp-gateway for user-scoped Slack access");
+    },
+  });
   return server;
 }
 
@@ -42,11 +46,11 @@ app.get("/mcp", (_req, res) => {
 
 const port = Number(process.env.MCP_SLACK_PORT ?? 4100);
 app.listen(port, "127.0.0.1", () => {
-  const configured = !!process.env.SLACK_BOT_TOKEN;
+  const configured = false;
   logger.info(
     { port, configured },
     configured
       ? "mcp-slack listening"
-      : "mcp-slack listening (SLACK_BOT_TOKEN not set — tools will error)",
+      : "mcp-slack legacy server listening without env tokens",
   );
 });

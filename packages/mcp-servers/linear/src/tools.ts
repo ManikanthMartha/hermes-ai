@@ -2,8 +2,13 @@ import { LinearClient } from "@linear/sdk";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-const apiKey = process.env.LINEAR_API_KEY;
-const linear = apiKey ? new LinearClient({ apiKey }) : null;
+export type LinearCredential = {
+  accessToken?: string;
+};
+
+export type LinearToolOptions = {
+  getCredential: () => Promise<LinearCredential>;
+};
 
 const out = (v: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(v) }],
@@ -13,12 +18,15 @@ const err = (msg: string) => ({
   isError: true,
 });
 
-function requireLinear() {
-  if (!linear) throw new Error("LINEAR_API_KEY not set");
-  return linear;
+async function requireLinear(options: LinearToolOptions) {
+  const credential = await options.getCredential();
+  if (!credential.accessToken) {
+    throw new Error("Linear is connected but did not return a usable access token");
+  }
+  return new LinearClient({ accessToken: credential.accessToken });
 }
 
-export function registerLinearTools(server: McpServer) {
+export function registerLinearTools(server: McpServer, options: LinearToolOptions) {
   server.registerTool(
     "list_projects",
     {
@@ -30,7 +38,7 @@ export function registerLinearTools(server: McpServer) {
     },
     async ({ first, include_archived }) => {
       try {
-        const lin = requireLinear();
+        const lin = await requireLinear(options);
         const projects = await lin.projects({
           first,
           includeArchived: include_archived,
@@ -69,7 +77,7 @@ export function registerLinearTools(server: McpServer) {
     },
     async ({ team, assignee_email, state, first }) => {
       try {
-        const lin = requireLinear();
+        const lin = await requireLinear(options);
         // Compose filter conservatively — Linear rejects empty {} on some fields.
         const filter: Record<string, unknown> = {};
         if (team) filter.team = { key: { eq: team } };
@@ -117,7 +125,7 @@ export function registerLinearTools(server: McpServer) {
     },
     async ({ identifier }) => {
       try {
-        const lin = requireLinear();
+        const lin = await requireLinear(options);
         // SDK's `issue(id)` takes either a UUID or the identifier.
         const issue = await lin.issue(identifier);
         const [state, assignee, comments] = await Promise.all([
@@ -159,7 +167,7 @@ export function registerLinearTools(server: McpServer) {
     },
     async ({ query, first }) => {
       try {
-        const lin = requireLinear();
+        const lin = await requireLinear(options);
         const res = await lin.searchIssues(query, { first });
         const nodes = await Promise.all(
           res.nodes.map(async (i) => {
@@ -212,7 +220,7 @@ export function registerLinearTools(server: McpServer) {
     },
     async ({ team, title, description, assignee_email, priority }) => {
       try {
-        const lin = requireLinear();
+        const lin = await requireLinear(options);
         // Resolve team by key → id
         const teams = await lin.teams({ filter: { key: { eq: team } } });
         const teamNode = teams.nodes[0];
@@ -269,7 +277,7 @@ export function registerLinearTools(server: McpServer) {
     },
     async ({ identifier, state_name }) => {
       try {
-        const lin = requireLinear();
+        const lin = await requireLinear(options);
         const issue = await lin.issue(identifier);
         const team = await issue.team;
         if (!team) throw new Error(`Issue ${identifier} has no team`);

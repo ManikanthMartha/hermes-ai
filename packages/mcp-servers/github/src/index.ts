@@ -7,7 +7,11 @@ import { registerGitHubTools } from "./tools.js";
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: "github", version: "0.1.0" });
-  registerGitHubTools(server);
+  registerGitHubTools(server, {
+    getCredential: async () => {
+      throw new Error("Use @hermes/mcp-gateway for user-scoped GitHub access");
+    },
+  });
   return server;
 }
 
@@ -38,11 +42,11 @@ app.get("/mcp", (_req, res) => {
 
 const port = Number(process.env.MCP_GITHUB_PORT ?? 4101);
 app.listen(port, "127.0.0.1", () => {
-  const configured = !!process.env.GITHUB_TOKEN;
+  const configured = false;
   logger.info(
     { port, configured },
     configured
       ? "mcp-github listening"
-      : "mcp-github listening (GITHUB_TOKEN not set — tools will error)",
+      : "mcp-github legacy server listening without env tokens",
   );
 });

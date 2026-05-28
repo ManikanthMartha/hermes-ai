@@ -2,8 +2,14 @@ import { WebClient } from "@slack/web-api";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-const token = process.env.SLACK_BOT_TOKEN;
-const slack = token ? new WebClient(token) : null;
+export type SlackCredential = {
+  accessToken?: string;
+  botAccessToken?: string;
+};
+
+export type SlackToolOptions = {
+  getCredential: () => Promise<SlackCredential>;
+};
 
 /** Minified JSON for minimum token overhead. */
 const out = (v: unknown) => ({
@@ -23,9 +29,19 @@ const err = (msg: string) => ({
   isError: true,
 });
 
-function requireSlack() {
-  if (!slack) throw new Error("SLACK_BOT_TOKEN not set");
-  return slack;
+async function requireSlack(
+  options: SlackToolOptions,
+  preferred: "user" | "bot" = "bot",
+) {
+  const credential = await options.getCredential();
+  const token =
+    preferred === "user"
+      ? credential.accessToken ?? credential.botAccessToken
+      : credential.botAccessToken ?? credential.accessToken;
+  if (!token) {
+    throw new Error("Slack is connected but did not return a usable access token");
+  }
+  return new WebClient(token);
 }
 
 type SlackUserFields = {
@@ -54,7 +70,7 @@ function serializeUser(u: SlackUserFields) {
   };
 }
 
-export function registerSlackTools(server: McpServer) {
+export function registerSlackTools(server: McpServer, options: SlackToolOptions) {
   server.registerTool(
     "list_channels",
     {
@@ -76,7 +92,7 @@ export function registerSlackTools(server: McpServer) {
     },
     async ({ include_archived, limit }) => {
       try {
-        const s = requireSlack();
+        const s = await requireSlack(options, "bot");
         const res = await s.conversations.list({
           types: "public_channel,private_channel",
           exclude_archived: !include_archived,
@@ -124,7 +140,7 @@ If the handle is unknown, call \`lookup_user\` first.`,
     },
     async ({ query, count }) => {
       try {
-        const s = requireSlack();
+        const s = await requireSlack(options, "user");
         const res = await s.search.messages({ query, count });
         const matches = (res.messages?.matches ?? []).map((m) => ({
           ts: m.ts,
@@ -155,7 +171,7 @@ If the handle is unknown, call \`lookup_user\` first.`,
     },
     async () => {
       try {
-        const s = requireSlack();
+        const s = await requireSlack(options, "user");
         const res = await s.auth.test();
         return out({
           user_id: res.user_id,
@@ -185,7 +201,7 @@ If the handle is unknown, call \`lookup_user\` first.`,
     },
     async ({ query }) => {
       try {
-        const s = requireSlack();
+        const s = await requireSlack(options, "bot");
         const needle = query.replace(/^@/, "").toLowerCase();
 
         // Fast path: email lookup (only works if the workspace exposes emails).
@@ -234,7 +250,7 @@ If the handle is unknown, call \`lookup_user\` first.`,
     },
     async ({ channel, ts, limit }) => {
       try {
-        const s = requireSlack();
+        const s = await requireSlack(options, "bot");
         const res = await s.conversations.replies({ channel, ts, limit });
         const messages = (res.messages ?? []).map((m) => ({
           ts: m.ts,
@@ -271,7 +287,7 @@ If the handle is unknown, call \`lookup_user\` first.`,
     },
     async ({ channel, text }) => {
       try {
-        const s = requireSlack();
+        const s = await requireSlack(options, "bot");
         const res = await s.chat.postMessage({ channel, text });
         return out({
           ok: res.ok,
@@ -304,7 +320,7 @@ If the handle is unknown, call \`lookup_user\` first.`,
     },
     async ({ channel, thread_ts, text, broadcast }) => {
       try {
-        const s = requireSlack();
+        const s = await requireSlack(options, "bot");
         const res = await s.chat.postMessage({
           channel,
           text,

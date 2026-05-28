@@ -6,8 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc --noEmit",
     "type-check": "tsc --noEmit",
-    "start": "tsx src/index.ts",
-    "auth": "tsx scripts/gmail-auth.ts"
+    "start": "tsx src/index.ts"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +30,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./tools": {
+      "types": "./src/tools.ts",
+      "default": "./src/tools.ts"
     }
   }
 }

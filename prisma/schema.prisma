@@ -19,7 +19,7 @@ datasource db {
 model Memory {
   id         String                       @id @default(uuid()) @db.Uuid
   workspaceId String                     @default("00000000-0000-4000-8000-000000000001") @db.Uuid @map("workspace_id")
-  userId     String                       @default("local-user") @db.VarChar(100) @map("user_id")
+  userId     String                       @db.VarChar(100) @map("user_id")
   content    String
   source     String?                      @db.VarChar(50)
   category   String?                      @db.VarChar(50)
@@ -77,7 +77,7 @@ model DocumentChunk {
 model Conversation {
   id        String    @id @default(uuid()) @db.Uuid
   workspaceId String  @default("00000000-0000-4000-8000-000000000001") @db.Uuid @map("workspace_id")
-  userId    String    @default("local-user") @db.VarChar(100) @map("user_id")
+  userId    String    @db.VarChar(100) @map("user_id")
   title     String?
   summary   String?
   messages  Message[]
@@ -117,11 +117,72 @@ model Event {
   @@map("events")
 }
 
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
 model Workspace {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
   slug        String?  @unique @db.VarChar(120)
-  ownerUserId String   @default("local-user") @db.VarChar(100) @map("owner_user_id")
+  ownerUserId String   @db.VarChar(100) @map("owner_user_id")
   metadata    Json     @default("{}")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -192,6 +253,24 @@ model IntegrationScope {
   @@map("integration_scopes")
 }
 
+model IntegrationOAuthState {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid @map("workspace_id")
+  provider    String    @db.VarChar(40)
+  stateHash   String    @unique @db.VarChar(120) @map("state_hash")
+  redirectUri String    @map("redirect_uri")
+  returnTo    String?   @map("return_to")
+  codeVerifier String?  @map("code_verifier")
+  metadata    Json      @default("{}")
+  expiresAt   DateTime  @map("expires_at")
+  consumedAt  DateTime? @map("consumed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([workspaceId, provider])
+  @@index([expiresAt])
+  @@map("integration_oauth_states")
+}
+
 model SourceObject {
   id             String    @id @default(uuid()) @db.Uuid
   workspaceId    String    @db.Uuid @map("workspace_id")
@@ -259,7 +338,7 @@ model Signal {
 model ActionItem {
   id                  String    @id @default(uuid()) @db.Uuid
   workspaceId         String    @db.Uuid @map("workspace_id")
-  ownerUserId         String    @default("local-user") @db.VarChar(100) @map("owner_user_id")
+  ownerUserId         String    @db.VarChar(100) @map("owner_user_id")
   actionType          String    @db.VarChar(80) @map("action_type")
   title               String
   summary             String?
@@ -394,4 +473,72 @@ model FailureEvent {
   @@index([workspaceId, status])
   @@index([source, eventType])
   @@map("failure_events")
+}
+
+model CalendarSyncState {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @db.Uuid @map("workspace_id")
+  calendarId       String    @default("primary") @db.VarChar(240) @map("calendar_id")
+  syncToken        String?   @map("sync_token")
+  watchChannelId   String?   @db.VarChar(80) @map("watch_channel_id")
+  watchResourceId  String?   @db.VarChar(160) @map("watch_resource_id")
+  watchResourceUri String?   @map("watch_resource_uri")
+  watchTokenHash   String?   @db.VarChar(120) @map("watch_token_hash")
+  watchExpiresAt   DateTime? @map("watch_expires_at")
+  lastSyncedAt     DateTime? @map("last_synced_at")
+  metadata         Json      @default("{}")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, calendarId])
+  @@index([watchChannelId])
+  @@map("calendar_sync_states")
+}
+
+model Meeting {
+  id                     String    @id @default(uuid()) @db.Uuid
+  workspaceId            String    @db.Uuid @map("workspace_id")
+  calendarSourceObjectId String?   @db.Uuid @map("calendar_source_object_id")
+  providerEventId        String    @db.VarChar(240) @map("provider_event_id")
+  title                  String
+  description            String?
+  organizerEmail         String?   @db.VarChar(240) @map("organizer_email")
+  attendeeEmails         String[]  @default([]) @map("attendee_emails")
+  location               String?
+  meetingUrl             String?   @map("meeting_url")
+  htmlLink               String?   @map("html_link")
+  startAt                DateTime  @map("start_at")
+  endAt                  DateTime? @map("end_at")
+  status                 String    @default("confirmed") @db.VarChar(40)
+  prepStatus             String    @default("not_prepared") @db.VarChar(40) @map("prep_status")
+  lastPreparedAt         DateTime? @map("last_prepared_at")
+  metadata               Json      @default("{}")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, providerEventId])
+  @@index([workspaceId, startAt])
+  @@index([prepStatus])
+  @@map("meetings")
+}
+
+model MeetingBrief {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @db.Uuid @map("workspace_id")
+  meetingId       String   @db.Uuid @map("meeting_id")
+  status          String   @default("generated") @db.VarChar(40)
+  summary         String?
+  agenda          Json     @default("[]")
+  openQuestions   Json     @default("[]") @map("open_questions")
+  risks           Json     @default("[]")
+  followUps       Json     @default("[]") @map("follow_ups")
+  sourceIds       String[] @default([]) @map("source_ids")
+  slackQueries    Json     @default("[]") @map("slack_queries")
+  content         Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([workspaceId, meetingId])
+  @@index([status])
+  @@map("meeting_briefs")
 }

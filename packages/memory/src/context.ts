@@ -1,8 +1,4 @@
-import {
-  DEFAULT_USER_ID,
-  type ContextBlock,
-  type PackedContext,
-} from "./types.js";
+import type { ContextBlock, PackedContext } from "./types.js";
 import { ConversationStore } from "./session.js";
 import { ProfileMemory } from "./profile.js";
 import { FactMemory } from "./facts.js";
@@ -20,7 +16,9 @@ export interface ContextPackOptions {
 const DEFAULT_TOKEN_BUDGET = 12_000;
 
 export class ContextPacker {
-  constructor(public readonly userId: string = DEFAULT_USER_ID) {}
+  constructor(public readonly userId: string) {
+    if (!userId) throw new Error("ContextPacker requires a user id");
+  }
 
   async pack(options: ContextPackOptions): Promise<PackedContext> {
     const userId = options.userId ?? this.userId;
@@ -137,4 +135,3 @@ function specialistQuery(
   }
   return query;
 }
-

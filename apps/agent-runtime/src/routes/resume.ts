@@ -5,10 +5,11 @@ import {
 } from "ai";
 import { Command } from "@langchain/langgraph";
 import { logger } from "@hermes/shared";
-import { ConversationStore, DEFAULT_USER_ID } from "@hermes/memory";
+import { ConversationStore } from "@hermes/memory";
 import { getGraph } from "../graph.js";
 import { pumpGraphToWriter } from "./chat-bridge.js";
 import type { ApprovalDecision } from "../agents/approval.js";
+import { requestContext } from "../http/request-context.js";
 
 /**
  * POST /api/chat/resume — the user approved, rejected, or edited a write.
@@ -32,13 +33,15 @@ export async function handleResume(req: Request, res: Response) {
   };
   const threadId = body.threadId;
   const decision = body.decision;
+  const context = requestContext(req);
+  const { userId } = context;
 
   if (!threadId || !decision) {
     res.status(400).json({ error: "threadId and decision are required" });
     return;
   }
 
-  const conversation = new ConversationStore(DEFAULT_USER_ID);
+  const conversation = new ConversationStore(userId);
   await conversation
     .appendMessage(threadId, {
       role: "user",
@@ -53,7 +56,7 @@ export async function handleResume(req: Request, res: Response) {
 
   let graph: Awaited<ReturnType<typeof getGraph>>;
   try {
-    graph = await getGraph();
+    graph = await getGraph(context);
   } catch (e) {
     logger.error({ err: e }, "graph build failed on resume");
     res.status(500).json({
@@ -68,7 +71,8 @@ export async function handleResume(req: Request, res: Response) {
         await pumpGraphToWriter({
           graph,
           threadId,
-          userId: DEFAULT_USER_ID,
+          userId,
+          workspaceId: context.workspaceId,
           writer,
           input: new Command({ resume: decision }),
         });

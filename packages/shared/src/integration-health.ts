@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
-import {
-  DEFAULT_WORKSPACE_ID,
-  INTEGRATION_PROVIDERS,
-  type IntegrationProvider,
-  type IntegrationStatus,
-} from "./action-os.js";
+import { INTEGRATION_PROVIDERS, type IntegrationProvider, type IntegrationStatus } from "./action-os.js";
 import { prisma } from "./db.js";
-import { ensureDefaultWorkspace } from "./workspace.js";
+import { ensureDefaultWorkspace, type WorkspaceContext } from "./workspace.js";
 
 export interface IntegrationHealth {
   id: string | null;
@@ -21,8 +16,7 @@ export interface IntegrationHealth {
   updatedAt: Date | null;
 }
 
-export interface UpsertIntegrationHealthInput {
-  workspaceId?: string;
+export interface UpsertIntegrationHealthInput extends Partial<WorkspaceContext> {
   provider: IntegrationProvider;
   status: IntegrationStatus;
   scopes?: unknown[];
@@ -46,9 +40,9 @@ interface IntegrationRow {
 }
 
 export async function listIntegrationHealth(
-  workspaceId = DEFAULT_WORKSPACE_ID,
+  context: Partial<WorkspaceContext> = {},
 ): Promise<IntegrationHealth[]> {
-  await ensureDefaultWorkspace({ workspaceId });
+  const { workspaceId } = await ensureDefaultWorkspace(context);
 
   const rows = await prisma.$queryRaw<IntegrationRow[]>`
     SELECT
@@ -90,8 +84,7 @@ export async function listIntegrationHealth(
 export async function upsertIntegrationHealth(
   input: UpsertIntegrationHealthInput,
 ): Promise<void> {
-  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  await ensureDefaultWorkspace({ workspaceId });
+  const { workspaceId } = await ensureDefaultWorkspace(input);
 
   await prisma.$executeRaw`
     INSERT INTO integration_accounts (

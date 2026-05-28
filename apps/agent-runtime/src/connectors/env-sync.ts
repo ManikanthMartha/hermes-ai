@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import {
   audit,
   createIdempotencyKey,
-  DEFAULT_USER_ID,
   ensureDefaultWorkspace,
   type IntegrationProvider,
   logger,
   prisma,
   recordFailure,
+  getProviderCredential,
   upsertIntegrationHealth,
+  type WorkspaceContext,
 } from "@hermes/shared";
 
 interface SourceObjectRow {
@@ -93,11 +94,15 @@ interface ConnectorAction {
 }
 
 export interface ListSourceObjectsInput {
+  workspaceId?: string;
+  userId?: string;
   provider?: IntegrationProvider;
   limit?: number;
 }
 
 export interface EnvSyncInput {
+  workspaceId?: string;
+  userId?: string;
   trigger?: "manual" | "watcher";
 }
 
@@ -108,7 +113,7 @@ export class ConnectorConfigurationError extends Error {
 }
 
 export async function listSourceObjects(input: ListSourceObjectsInput = {}) {
-  const { workspaceId } = await ensureDefaultWorkspace();
+  const { workspaceId } = await ensureDefaultWorkspace(input);
   const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
   const provider = input.provider ?? null;
 
@@ -141,7 +146,7 @@ export async function runEnvConnectorSync(
   provider: IntegrationProvider,
   input: EnvSyncInput = {},
 ) {
-  const { workspaceId } = await ensureDefaultWorkspace();
+  const { workspaceId, userId } = await ensureDefaultWorkspace(input);
   const trigger = input.trigger ?? "manual";
   const startedAt = new Date();
   const syncRunId = randomUUID();
@@ -172,7 +177,7 @@ export async function runEnvConnectorSync(
   `;
 
   try {
-    const items = await fetchProviderSources(provider);
+    const items = await fetchProviderSources(provider, { workspaceId, userId });
     let objectsChanged = 0;
     const sourceObjects = [];
     const actions = [];
@@ -197,6 +202,7 @@ export async function runEnvConnectorSync(
           sourceObject.row,
           signal,
           item.action,
+          userId,
         );
         actions.push(toActionSummaryResponse(action));
       }
@@ -209,6 +215,7 @@ export async function runEnvConnectorSync(
 
     await upsertIntegrationHealth({
       workspaceId,
+      userId,
       provider,
       status: "connected",
       scopes: ["read"],
@@ -221,7 +228,7 @@ export async function runEnvConnectorSync(
     await audit({
       workspaceId,
       actorType: trigger === "watcher" ? "system" : "user",
-      actorId: trigger === "manual" ? DEFAULT_USER_ID : undefined,
+      actorId: trigger === "manual" ? userId : undefined,
       eventType: "sync.completed",
       objectType: "sync_run",
       objectId: syncRun.id,
@@ -259,6 +266,7 @@ export async function runEnvConnectorSync(
 
     await upsertIntegrationHealth({
       workspaceId,
+      userId,
       provider,
       status: configured ? "error" : "not_connected",
       scopes: [],
@@ -442,6 +450,7 @@ async function upsertAction(
   sourceObject: SourceObjectRow,
   signal: SignalRow,
   action: ConnectorAction,
+  userId: string,
 ): Promise<ActionRow> {
   const idempotencyKey = createIdempotencyKey([
     workspaceId,
@@ -476,7 +485,7 @@ async function upsertAction(
     VALUES (
       ${randomUUID()}::uuid,
       ${workspaceId}::uuid,
-      ${DEFAULT_USER_ID},
+      ${userId},
       ${action.actionType},
       ${action.title},
       ${action.summary},
@@ -573,31 +582,38 @@ async function completeSyncRun(
 
 async function fetchProviderSources(
   provider: IntegrationProvider,
+  workspaceContext: WorkspaceContext,
 ): Promise<ConnectorSource[]> {
   switch (provider) {
     case "slack":
-      return fetchSlackSources();
+      return fetchSlackSources(workspaceContext);
     case "github":
-      return fetchGitHubSources();
+      return fetchGitHubSources(workspaceContext);
     case "gmail":
-      return fetchGmailSources();
+      return fetchGmailSources(workspaceContext);
     case "calendar":
-      return fetchCalendarSources();
+      return fetchCalendarSources(workspaceContext);
     case "linear":
-      return fetchLinearSources();
+      return fetchLinearSources(workspaceContext);
     case "sentry":
-      return fetchSentrySources();
+      return fetchSentrySources(workspaceContext);
   }
 }
 
-async function fetchSlackSources(): Promise<ConnectorSource[]> {
-  const token = requireEnv("SLACK_BOT_TOKEN", "Slack");
+async function fetchSlackSources(
+  workspaceContext: WorkspaceContext,
+): Promise<ConnectorSource[]> {
+  const token = await connectedToken("slack", workspaceContext.workspaceId);
+  if (!token) throw new ConnectorConfigurationError("Slack is not connected");
   await slackApi<{ user_id?: string; team?: string }>("auth.test", token);
   return [];
 }
 
-async function fetchGitHubSources(): Promise<ConnectorSource[]> {
-  const token = requireEnv("GITHUB_TOKEN", "GitHub");
+async function fetchGitHubSources(
+  workspaceContext: WorkspaceContext,
+): Promise<ConnectorSource[]> {
+  const token = await connectedToken("github", workspaceContext.workspaceId);
+  if (!token) throw new ConnectorConfigurationError("GitHub is not connected");
   await githubApi<unknown>("/user", token);
   const issues = await githubApi<
     Array<{
@@ -653,8 +669,10 @@ async function fetchGitHubSources(): Promise<ConnectorSource[]> {
   });
 }
 
-async function fetchGmailSources(): Promise<ConnectorSource[]> {
-  const accessToken = await googleAccessToken();
+async function fetchGmailSources(
+  workspaceContext: WorkspaceContext,
+): Promise<ConnectorSource[]> {
+  const accessToken = await googleAccessToken(workspaceContext.workspaceId);
   const list = await googleApi<{ messages?: Array<{ id: string; threadId?: string }> }>(
     "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in%3Ainbox%20newer_than%3A7d&maxResults=5",
     accessToken,
@@ -711,8 +729,10 @@ async function fetchGmailSources(): Promise<ConnectorSource[]> {
   });
 }
 
-async function fetchCalendarSources(): Promise<ConnectorSource[]> {
-  const accessToken = await googleAccessToken();
+async function fetchCalendarSources(
+  workspaceContext: WorkspaceContext,
+): Promise<ConnectorSource[]> {
+  const accessToken = await googleAccessToken(workspaceContext.workspaceId);
   const timeMin = encodeURIComponent(new Date().toISOString());
   const data = await googleApi<{
     items?: Array<{
@@ -768,8 +788,11 @@ async function fetchCalendarSources(): Promise<ConnectorSource[]> {
   });
 }
 
-async function fetchLinearSources(): Promise<ConnectorSource[]> {
-  const apiKey = requireEnv("LINEAR_API_KEY", "Linear");
+async function fetchLinearSources(
+  workspaceContext: WorkspaceContext,
+): Promise<ConnectorSource[]> {
+  const apiKey = await connectedToken("linear", workspaceContext.workspaceId);
+  if (!apiKey) throw new ConnectorConfigurationError("Linear is not connected");
   const data = await linearGraphql<{
     viewer?: {
       assignedIssues?: {
@@ -840,10 +863,18 @@ async function fetchLinearSources(): Promise<ConnectorSource[]> {
   }));
 }
 
-async function fetchSentrySources(): Promise<ConnectorSource[]> {
-  const token = requireEnv("SENTRY_AUTH_TOKEN", "Sentry");
-  const org = requireEnv("SENTRY_ORG", "Sentry");
-  const project = process.env.SENTRY_PROJECT;
+async function fetchSentrySources(
+  workspaceContext: WorkspaceContext,
+): Promise<ConnectorSource[]> {
+  const credential = await getProviderCredential("sentry", workspaceContext.workspaceId);
+  const token = credential?.accessToken;
+  if (!token) throw new ConnectorConfigurationError("Sentry is not connected");
+  const org =
+    stringFromRecord(credential?.account, "orgSlug") ??
+    (() => {
+      throw new ConnectorConfigurationError("Sentry org slug is not configured");
+    })();
+  const project = stringFromRecord(credential?.account, "projectSlug");
   const query = encodeURIComponent(
     project ? `is:unresolved project:${project}` : "is:unresolved",
   );
@@ -922,10 +953,16 @@ async function githubApi<T>(path: string, token: string): Promise<T> {
   );
 }
 
-async function googleAccessToken(): Promise<string> {
+async function googleAccessToken(workspaceId: string): Promise<string> {
   const clientId = requireEnv("GOOGLE_CLIENT_ID", "Google");
   const clientSecret = requireEnv("GOOGLE_CLIENT_SECRET", "Google");
-  const refreshToken = requireEnv("GOOGLE_REFRESH_TOKEN", "Google");
+  const googleCredential =
+    (await getProviderCredential("calendar", workspaceId)) ??
+    (await getProviderCredential("gmail", workspaceId));
+  const refreshToken = googleCredential?.refreshToken;
+  if (!refreshToken) {
+    throw new ConnectorConfigurationError("Google account is not connected");
+  }
   const body = new URLSearchParams({
     client_id: clientId,
     client_secret: clientSecret,
@@ -943,6 +980,15 @@ async function googleAccessToken(): Promise<string> {
   );
   if (!token.access_token) throw new Error("Google did not return an access token");
   return token.access_token;
+}
+
+async function connectedToken(
+  provider: "slack" | "github" | "linear" | "sentry",
+  workspaceId: string,
+): Promise<string | null> {
+  const credential = await getProviderCredential(provider, workspaceId);
+  if (!credential) return null;
+  return credential.botAccessToken ?? credential.accessToken ?? null;
 }
 
 async function googleApi<T>(url: string, accessToken: string): Promise<T> {
@@ -1119,4 +1165,12 @@ function toJson(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringFromRecord(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const raw = value?.[key];
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
 }

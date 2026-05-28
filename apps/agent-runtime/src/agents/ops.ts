@@ -1,4 +1,5 @@
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import type { WorkspaceContext } from "@hermes/shared";
 import { chatModels } from "@hermes/shared/llm";
 import { getToolsForSpecialist } from "./mcp.js";
 
@@ -20,10 +21,10 @@ You are invoked BECAUSE there's a Sentry question to answer. Do not greet, do no
 - Drop low-value fields (internal tags, platform metadata) unless asked.
 - **Do your Sentry part only. Say nothing about other specialists or scope.** Herald dispatches the other agents in parallel/sequence — your response should not mention "out of scope" or "ask Iris/Talos". That's redundant noise.`;
 
-export async function buildOpsAgent() {
+export async function buildOpsAgent(context: WorkspaceContext) {
   // Argus is pure read for now — no gateWrites call needed. If Sentry
   // writes (resolve_issue) land later, wrap the same way Iris/Talos do.
-  const tools = await getToolsForSpecialist(["sentry"]);
+  const tools = await getToolsForSpecialist(["sentry"], context);
   return createReactAgent({
     llm: chatModels.fast,
     tools,

@@ -1,4 +1,4 @@
-import "@hermes/shared"; // loads monorepo .env
+import "@hermes/shared";
 import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -7,7 +7,11 @@ import { registerGmailTools } from "./tools.js";
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: "gmail", version: "0.1.0" });
-  registerGmailTools(server);
+  registerGmailTools(server, {
+    getCredential: async () => {
+      throw new Error("Use @hermes/mcp-gateway for user-scoped Gmail access");
+    },
+  });
   return server;
 }
 
@@ -38,14 +42,5 @@ app.get("/mcp", (_req, res) => {
 
 const port = Number(process.env.MCP_GMAIL_PORT ?? 4104);
 app.listen(port, "127.0.0.1", () => {
-  const configured =
-    !!process.env.GOOGLE_CLIENT_ID &&
-    !!process.env.GOOGLE_CLIENT_SECRET &&
-    !!process.env.GOOGLE_REFRESH_TOKEN;
-  logger.info(
-    { port, configured },
-    configured
-      ? "mcp-gmail listening"
-      : "mcp-gmail listening (GOOGLE_* creds not set — tools will error). Run `pnpm gmail:auth` to mint a refresh token.",
-  );
+  logger.info({ port }, "mcp-gmail legacy server listening without env tokens");
 });

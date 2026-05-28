@@ -1,4 +1,5 @@
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import type { WorkspaceContext } from "@hermes/shared";
 import { chatModels } from "@hermes/shared/llm";
 import { getToolsForSpecialist } from "./mcp.js";
 import { gateWrites } from "./approval.js";
@@ -37,8 +38,10 @@ You are invoked BECAUSE there's a Slack or Gmail task to do. Do not greet, do no
 - If there is genuinely nothing comms-related for you to do, say so in one sentence and stop.`;
 
 /** Build the Iris specialist. Called once at graph-build time. */
-export async function buildCommsAgent() {
-  const tools = gateWrites(await getToolsForSpecialist(["slack", "gmail"]));
+export async function buildCommsAgent(context: WorkspaceContext) {
+  const tools = gateWrites(
+    await getToolsForSpecialist(["slack", "gmail"], context),
+  );
   return createReactAgent({
     llm: chatModels.fast,
     tools,

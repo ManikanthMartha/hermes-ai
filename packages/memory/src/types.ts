@@ -1,7 +1,5 @@
 import type { AgentMessage, MemoryCategory, MemorySource } from "@hermes/shared";
 
-export const DEFAULT_USER_ID = "local-user";
-
 export type MemoryStatus = "active" | "superseded" | "deleted";
 
 export interface MemoryRecord {
@@ -70,4 +68,3 @@ export interface PackedContext {
     total: number;
   };
 }
-

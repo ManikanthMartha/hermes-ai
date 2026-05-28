@@ -14,7 +14,7 @@
  */
 
 import type { UIMessageStreamWriter } from "ai";
-import { ConversationStore, DEFAULT_USER_ID } from "@hermes/memory";
+import { ConversationStore } from "@hermes/memory";
 import { SPECIALIST_KEYS, type SpecialistKey } from "../agents/names.js";
 
 const SPECIALISTS: ReadonlySet<string> = new Set(SPECIALIST_KEYS);
@@ -51,7 +51,8 @@ type UIWriter = UIMessageStreamWriter;
 interface BridgeOptions {
   graph: HermesGraph;
   threadId: string;
-  userId?: string;
+  userId: string;
+  workspaceId?: string;
   writer: UIWriter;
   /** The input fed into `graph.streamEvents` — `{ messages: [...] }` for a new
    * turn, or a `Command({ resume })` for HIL resume. */
@@ -67,11 +68,16 @@ interface BridgeOptions {
 export async function pumpGraphToWriter({
   graph,
   threadId,
-  userId = DEFAULT_USER_ID,
+  userId,
+  workspaceId,
   writer,
   input,
 }: BridgeOptions): Promise<void> {
-  const config = { configurable: { thread_id: threadId }, version: "v2" as const };
+  if (!userId) throw new Error("pumpGraphToWriter requires a user id");
+  const config = {
+    configurable: { thread_id: threadId, user_id: userId, workspace_id: workspaceId },
+    version: "v2" as const,
+  };
   const conversation = new ConversationStore(userId);
 
   // Track which text blocks we've opened so we can emit text-end.

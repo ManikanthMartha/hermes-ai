@@ -1,4 +1,4 @@
-import { DEFAULT_USER_ID, type MemoryRecord } from "./types.js";
+import type { MemoryRecord } from "./types.js";
 import { FactMemory } from "./facts.js";
 
 export interface SemanticResult {
@@ -10,7 +10,8 @@ export interface SemanticResult {
 export class SemanticMemory {
   private readonly facts: FactMemory;
 
-  constructor(public readonly userId: string = DEFAULT_USER_ID) {
+  constructor(public readonly userId: string) {
+    if (!userId) throw new Error("SemanticMemory requires a user id");
     this.facts = new FactMemory(userId);
   }
 
@@ -41,4 +42,3 @@ function toSemanticResult(row: MemoryRecord): SemanticResult {
     score: row.score ?? 0,
   };
 }
-

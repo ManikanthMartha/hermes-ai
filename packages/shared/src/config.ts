@@ -20,7 +20,9 @@ export function loadEnv(): Env {
   if (cached) return cached;
   const parsed = schema.safeParse(process.env);
   if (!parsed.success) {
-    console.error("Invalid environment:", z.treeifyError(parsed.error));
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Invalid environment:", z.treeifyError(parsed.error));
+    }
     throw new Error("Invalid environment variables");
   }
   cached = parsed.data;

@@ -4,7 +4,8 @@ import {
   START,
   MemorySaver,
 } from "@langchain/langgraph";
-import { ContextPacker, DEFAULT_USER_ID } from "@hermes/memory";
+import type { WorkspaceContext } from "@hermes/shared";
+import { ContextPacker } from "@hermes/memory";
 import { buildCommsAgent } from "./agents/comms.js";
 import { buildCodeAgent } from "./agents/code.js";
 import { buildOpsAgent } from "./agents/ops.js";
@@ -33,25 +34,27 @@ import { routingToCommand, runHerald } from "./agents/planner.js";
  * Phase 8 swaps this for a PostgresSaver against Neon so checkpoints survive
  * restarts (important for HIL resumes that span minutes/hours).
  */
-export async function buildGraph() {
+export async function buildGraph(context: WorkspaceContext) {
   const [comms, code, ops] = await Promise.all([
-    buildCommsAgent(),
-    buildCodeAgent(),
-    buildOpsAgent(),
+    buildCommsAgent(context),
+    buildCodeAgent(context),
+    buildOpsAgent(context),
   ]);
 
   const plannerNode = async (
     state: typeof MessagesAnnotation.State,
-    config?: { configurable?: { thread_id?: string } },
+    config?: { configurable?: { thread_id?: string; user_id?: string } },
   ) => {
     const latestUser = [...state.messages]
       .reverse()
       .find((m) => m.getType() === "human" && typeof m.content === "string");
     const threadId = config?.configurable?.thread_id ?? "default-thread";
+    const userId = config?.configurable?.user_id;
+    if (!userId) throw new Error("graph invocation requires user_id");
     const query =
       typeof latestUser?.content === "string" ? latestUser.content : "";
     const packed = query
-      ? await new ContextPacker(DEFAULT_USER_ID).pack({
+      ? await new ContextPacker(userId).pack({
           threadId,
           query,
           specialist: "planner",
@@ -79,11 +82,15 @@ export async function buildGraph() {
   return graph.compile({ checkpointer: new MemorySaver() });
 }
 
-let _graph: Awaited<ReturnType<typeof buildGraph>> | null = null;
+const graphs = new Map<string, Awaited<ReturnType<typeof buildGraph>>>();
 
 /** Lazy singleton — the graph is cheap but the MCP `getTools()` call inside
  * each specialist's builder is a real network hit. Build once, reuse. */
-export async function getGraph() {
-  if (!_graph) _graph = await buildGraph();
-  return _graph;
+export async function getGraph(context: WorkspaceContext) {
+  const key = `${context.workspaceId}:${context.userId}`;
+  const existing = graphs.get(key);
+  if (existing) return existing;
+  const graph = await buildGraph(context);
+  graphs.set(key, graph);
+  return graph;
 }

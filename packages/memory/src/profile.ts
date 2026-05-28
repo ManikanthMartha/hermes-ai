@@ -1,4 +1,4 @@
-import { DEFAULT_USER_ID, type MemoryRecord } from "./types.js";
+import type { MemoryRecord } from "./types.js";
 import { FactMemory } from "./facts.js";
 
 const PROFILE_CATEGORIES = new Set([
@@ -11,7 +11,8 @@ const PROFILE_CATEGORIES = new Set([
 export class ProfileMemory {
   private readonly facts: FactMemory;
 
-  constructor(public readonly userId: string = DEFAULT_USER_ID) {
+  constructor(public readonly userId: string) {
+    if (!userId) throw new Error("ProfileMemory requires a user id");
     this.facts = new FactMemory(userId);
   }
 
@@ -38,4 +39,3 @@ export class ProfileMemory {
     ].join("\n");
   }
 }
-

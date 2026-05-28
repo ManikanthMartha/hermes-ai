@@ -2,8 +2,13 @@ import { Octokit } from "@octokit/rest";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-const token = process.env.GITHUB_TOKEN;
-const octokit = token ? new Octokit({ auth: token }) : null;
+export type GitHubCredential = {
+  accessToken?: string;
+};
+
+export type GitHubToolOptions = {
+  getCredential: () => Promise<GitHubCredential>;
+};
 
 const out = (v: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(v) }],
@@ -13,9 +18,12 @@ const err = (msg: string) => ({
   isError: true,
 });
 
-function requireOctokit() {
-  if (!octokit) throw new Error("GITHUB_TOKEN not set");
-  return octokit;
+async function requireOctokit(options: GitHubToolOptions) {
+  const credential = await options.getCredential();
+  if (!credential.accessToken) {
+    throw new Error("GitHub is connected but did not return a usable access token");
+  }
+  return new Octokit({ auth: credential.accessToken });
 }
 
 const RepoRef = {
@@ -23,7 +31,10 @@ const RepoRef = {
   repo: z.string().describe("Repository name."),
 };
 
-export function registerGitHubTools(server: McpServer) {
+export function registerGitHubTools(
+  server: McpServer,
+  options: GitHubToolOptions,
+) {
   server.registerTool(
     "get_authenticated_user",
     {
@@ -33,7 +44,7 @@ export function registerGitHubTools(server: McpServer) {
     },
     async () => {
       try {
-        const gh = requireOctokit();
+        const gh = await requireOctokit(options);
         const [{ data: user }, { data: orgs }] = await Promise.all([
           gh.users.getAuthenticated(),
           gh.orgs.listForAuthenticatedUser({ per_page: 100 }),
@@ -75,7 +86,7 @@ export function registerGitHubTools(server: McpServer) {
     },
     async ({ sort, affiliation, visibility, per_page }) => {
       try {
-        const gh = requireOctokit();
+        const gh = await requireOctokit(options);
         const { data } = await gh.repos.listForAuthenticatedUser({
           sort,
           affiliation,
@@ -117,7 +128,7 @@ export function registerGitHubTools(server: McpServer) {
     },
     async ({ org, sort, type, per_page }) => {
       try {
-        const gh = requireOctokit();
+        const gh = await requireOctokit(options);
         const { data } = await gh.repos.listForOrg({
           org,
           sort,
@@ -153,7 +164,7 @@ export function registerGitHubTools(server: McpServer) {
     },
     async ({ owner, repo, state, per_page }) => {
       try {
-        const gh = requireOctokit();
+        const gh = await requireOctokit(options);
         const { data } = await gh.pulls.list({ owner, repo, state, per_page });
         const prs = data.map((p) => ({
           number: p.number,
@@ -186,7 +197,7 @@ export function registerGitHubTools(server: McpServer) {
     },
     async ({ owner, repo, pull_number }) => {
       try {
-        const gh = requireOctokit();
+        const gh = await requireOctokit(options);
         const res = await gh.pulls.get({
           owner,
           repo,
@@ -219,7 +230,7 @@ export function registerGitHubTools(server: McpServer) {
     },
     async ({ owner, repo, state, labels, per_page }) => {
       try {
-        const gh = requireOctokit();
+        const gh = await requireOctokit(options);
         const { data } = await gh.issues.listForRepo({
           owner,
           repo,
@@ -263,7 +274,7 @@ export function registerGitHubTools(server: McpServer) {
     },
     async ({ owner, repo, sha, per_page }) => {
       try {
-        const gh = requireOctokit();
+        const gh = await requireOctokit(options);
         const { data } = await gh.repos.listCommits({
           owner,
           repo,

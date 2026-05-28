@@ -9,9 +9,11 @@ export function vectorLiteral(values: number[]): string {
 }
 
 export function rowToMemory(row: Record<string, unknown>): MemoryRecord {
+  const userId = row.user_id ?? row.userId;
+  if (!userId) throw new Error("memory row is missing user id");
   return {
     id: String(row.id),
-    userId: String(row.user_id ?? row.userId ?? "local-user"),
+    userId: String(userId),
     content: String(row.content ?? ""),
     category: String(row.category ?? "fact") as MemoryRecord["category"],
     subject: nullableString(row.subject),
@@ -49,4 +51,3 @@ function nullableDate(value: unknown): Date | null {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-

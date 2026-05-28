@@ -1,20 +1,34 @@
 import { prisma, redis, type AgentMessage } from "@hermes/shared";
 import { createHash, randomUUID } from "node:crypto";
-import {
-  DEFAULT_USER_ID,
-  type ConversationMessage,
-  type ConversationMessageInput,
-} from "./types.js";
+import type { ConversationMessage, ConversationMessageInput } from "./types.js";
 
 export class ConversationStore {
-  constructor(public readonly userId: string = DEFAULT_USER_ID) {}
+  constructor(public readonly userId: string) {
+    if (!userId) throw new Error("ConversationStore requires a user id");
+  }
 
   async ensureConversation(conversationId: string): Promise<void> {
     const id = conversationDbId(conversationId);
     await prisma.$executeRaw`
       INSERT INTO conversations (id, user_id, created_at, updated_at)
       VALUES (${id}::uuid, ${this.userId}, now(), now())
-      ON CONFLICT (id) DO UPDATE SET updated_at = now()
+      ON CONFLICT (id) DO NOTHING
+    `;
+    const rows = await prisma.$queryRaw<Array<{ userId: string }>>`
+      SELECT user_id AS "userId"
+      FROM conversations
+      WHERE id = ${id}::uuid
+      LIMIT 1
+    `;
+    const owner = rows[0]?.userId;
+    if (owner !== this.userId) {
+      throw new Error("conversation does not belong to the authenticated user");
+    }
+    await prisma.$executeRaw`
+      UPDATE conversations
+      SET updated_at = now()
+      WHERE id = ${id}::uuid
+        AND user_id = ${this.userId}
     `;
   }
 
@@ -67,9 +81,11 @@ export class ConversationStore {
     const id = conversationDbId(conversationId);
     const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT id, conversation_id, role, content, name, tool_calls, metadata, created_at
-      FROM messages
-      WHERE conversation_id = ${id}::uuid
-      ORDER BY created_at DESC
+      FROM messages m
+      INNER JOIN conversations c ON c.id = m.conversation_id
+      WHERE m.conversation_id = ${id}::uuid
+        AND c.user_id = ${this.userId}
+      ORDER BY m.created_at DESC
       LIMIT ${limit}
     `;
     const messages = rows.map(rowToConversationMessage).reverse();
@@ -122,9 +138,11 @@ export class ConversationStore {
     const id = conversationDbId(conversationId);
     const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT id, conversation_id, role, content, name, tool_calls, metadata, created_at
-      FROM messages
-      WHERE conversation_id = ${id}::uuid
-      ORDER BY created_at ASC
+      FROM messages m
+      INNER JOIN conversations c ON c.id = m.conversation_id
+      WHERE m.conversation_id = ${id}::uuid
+        AND c.user_id = ${this.userId}
+      ORDER BY m.created_at ASC
     `;
     return rows.map(rowToConversationMessage);
   }
@@ -135,6 +153,7 @@ export class ConversationStore {
       SELECT summary
       FROM conversations
       WHERE id = ${id}::uuid
+        AND user_id = ${this.userId}
       LIMIT 1
     `;
     return rows[0]?.summary ?? null;
@@ -147,6 +166,7 @@ export class ConversationStore {
       UPDATE conversations
       SET summary = ${summary}, updated_at = now()
       WHERE id = ${id}::uuid
+        AND user_id = ${this.userId}
     `;
   }
 
@@ -161,6 +181,7 @@ export class ConversationStore {
       UPDATE conversations
       SET title = COALESCE(title, ${title}), updated_at = now()
       WHERE id = ${id}::uuid
+        AND user_id = ${this.userId}
     `;
   }
 
@@ -220,7 +241,7 @@ export class SessionMemory {
 
   constructor(
     public readonly sessionId: string,
-    userId: string = DEFAULT_USER_ID,
+    userId: string,
   ) {
     this.store = new ConversationStore(userId);
   }
