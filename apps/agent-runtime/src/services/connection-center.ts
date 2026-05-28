@@ -94,7 +94,7 @@ export const CONNECTION_PROVIDERS: ProviderDefinition[] = [
       "chat:write",
       "users:read",
     ],
-    userScopes: ["search:read"],
+    userScopes: ["search:read", "chat:write"],
     description: "Search workspace conversations and turn updates into action signals.",
   },
   {

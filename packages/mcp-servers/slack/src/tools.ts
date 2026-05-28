@@ -29,6 +29,8 @@ const err = (msg: string) => ({
   isError: true,
 });
 
+const SLACK_USER_ID_RE = /^[UW][A-Z0-9]+$/;
+
 async function requireSlack(
   options: SlackToolOptions,
   preferred: "user" | "bot" = "bot",
@@ -166,7 +168,7 @@ If the handle is unknown, call \`lookup_user\` first.`,
     "whoami",
     {
       description:
-        "Returns the authenticated Slack user's id, handle, and team. Call this FIRST when the user says 'post to myself', 'DM me', or 'send to my Slack'. The returned `user_id` (starts with 'U') can be passed as the `channel` argument to post_message — Slack's chat.postMessage treats a user id as a DM target.",
+        "Returns the authenticated Slack user's id, handle, and team. Call this FIRST when the user says 'post to myself', 'DM me', or 'send to my Slack'. Pass the returned `user_id` as the `channel` argument to post_message.",
       inputSchema: {},
     },
     async () => {
@@ -275,23 +277,26 @@ If the handle is unknown, call \`lookup_user\` first.`,
     "post_message",
     {
       description:
-        "[WRITE] Post a message to a Slack channel. Uses chat.postMessage. Requires `chat:write` scope. Requires user approval before executing.",
+        "[WRITE] Post a message to a Slack channel or DM. If `channel` is a Slack user id, Hermes uses the user's Slack token when available so the message is sent as the connected user instead of the Hermes app. Requires `chat:write` scope. Requires user approval before executing.",
       inputSchema: {
         channel: z
           .string()
           .describe(
-            "Channel name (e.g., '#engineering'), channel ID, or DM user ID.",
+            "Channel name (e.g., '#engineering'), channel ID, DM channel ID, or Slack user ID.",
           ),
         text: z.string().min(1).describe("Message body. Supports Slack mrkdwn."),
       },
     },
     async ({ channel, text }) => {
       try {
-        const s = await requireSlack(options, "bot");
+        const shouldPostAsUser = SLACK_USER_ID_RE.test(channel.trim());
+        const s = await requireSlack(options, shouldPostAsUser ? "user" : "bot");
         const res = await s.chat.postMessage({ channel, text });
         return out({
           ok: res.ok,
           channel: res.channel,
+          requested_channel: channel,
+          posted_as: shouldPostAsUser ? "user" : "app",
           ts: res.ts,
           permalink: undefined as string | undefined,
         });
