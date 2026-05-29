@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "@hermes/ui/globals.css";
 
 /**
@@ -8,10 +8,17 @@ import "@hermes/ui/globals.css";
  * Geist Mono stays loaded as a fallback for code blocks where Streamdown
  * wants an extra-tight mono rhythm.
  */
-const plex = IBM_Plex_Mono({
+const geist = Geist({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
+  display: "swap",
+});
+
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400"],
+  style: ["normal", "italic"],
   display: "swap",
 });
 
@@ -36,7 +43,7 @@ export default function RootLayout({
       lang="en"
       // Dark by default; `suppressHydrationWarning` on <html> covers the theme
       // swap if we add next-themes later.
-      className={`dark ${plex.variable} ${geistMono.variable} antialiased`}
+      className={`${geist.variable} ${instrumentSerif.variable} ${geistMono.variable} antialiased`}
       suppressHydrationWarning
     >
       <body>{children}</body>

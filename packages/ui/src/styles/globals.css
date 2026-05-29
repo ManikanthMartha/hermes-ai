@@ -56,24 +56,24 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+    --background: oklch(0.978 0.012 83);
+    --foreground: oklch(0.18 0.014 76);
+    --card: oklch(0.998 0.004 83);
+    --card-foreground: oklch(0.18 0.014 76);
+    --popover: oklch(0.998 0.004 83);
+    --popover-foreground: oklch(0.18 0.014 76);
+    --primary: oklch(0.22 0.014 76);
+    --primary-foreground: oklch(0.985 0.006 83);
+    --secondary: oklch(0.944 0.013 83);
+    --secondary-foreground: oklch(0.25 0.014 76);
+    --muted: oklch(0.945 0.012 83);
+    --muted-foreground: oklch(0.52 0.02 75);
+    --accent: oklch(0.938 0.014 83);
+    --accent-foreground: oklch(0.22 0.014 76);
     --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --border: oklch(0.88 0.014 83);
+    --input: oklch(0.88 0.014 83);
+    --ring: oklch(0.48 0.16 265);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -82,16 +82,16 @@
     --radius: 0.625rem;
     /* Hermes signature — warm copper/amber for the assistant's role indicator,
        brand wordmark, and sparing accents. Never as a message background. */
-    --hermes: oklch(0.72 0.12 65);
-    --hermes-foreground: oklch(0.18 0.03 60);
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --hermes: oklch(0.54 0.12 63);
+    --hermes-foreground: oklch(0.985 0.006 83);
+    --sidebar: oklch(0.955 0.011 83);
+    --sidebar-foreground: oklch(0.22 0.014 76);
+    --sidebar-primary: oklch(0.22 0.014 76);
+    --sidebar-primary-foreground: oklch(0.985 0.006 83);
+    --sidebar-accent: oklch(0.925 0.012 83);
+    --sidebar-accent-foreground: oklch(0.22 0.014 76);
+    --sidebar-border: oklch(0.875 0.014 83);
+    --sidebar-ring: oklch(0.48 0.16 265);
 }
 
 .dark {
@@ -141,17 +141,16 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* IBM Plex Mono: ss02 flips the slashed zero, ss03 gives single-story g,
-       cv02 tames the bar on 'l' and 'i'. This is the "quiet + legible" mix. */
-    font-feature-settings: "ss02", "ss03", "cv02";
-    font-family: var(--font-sans), ui-monospace, SFMono-Regular, Menlo,
-      monospace;
+    font-feature-settings: "ss02", "cv02";
+    font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
+      BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
-  /* Everything is mono; `font-sans` maps to Plex Mono. Keep `font-mono` on
-     code blocks where Geist Mono's tighter figures read better. */
   .font-mono {
     font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo,
       monospace;
+  }
+  .font-display {
+    font-family: var(--font-display), Georgia, "Times New Roman", serif;
   }
   /* Copper block caret with a subtle blink. Attach via `caret-hermes` on
      inputs; we also overlay a fake block glyph for visible width. */

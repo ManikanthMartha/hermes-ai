@@ -3,8 +3,10 @@
 import {
   CheckIcon,
   Clock3Icon,
+  FileTextIcon,
   FileClockIcon,
-  MessageSquarePlusIcon,
+  HistoryIcon,
+  ListChecksIcon,
   RefreshCwIcon,
   SendIcon,
   ShieldCheckIcon,
@@ -27,6 +29,7 @@ const STATUS_FILTERS = [
 ] as const;
 
 type StatusFilter = (typeof STATUS_FILTERS)[number];
+type DetailTab = "summary" | "draft" | "evidence" | "history";
 
 export function ActionBoard() {
   const [actions, setActions] = useState<ActionItem[]>([]);
@@ -120,12 +123,8 @@ export function ActionBoard() {
     setSaving("update");
     setError(null);
     try {
-      let draftPayload: unknown = { body: draftText };
-      try {
-        draftPayload = JSON.parse(draftText);
-      } catch {
-        // Plain text is valid prototype draft content.
-      }
+      const original = actions.find((action) => action.id === id)?.draftPayload;
+      const draftPayload = draftPayloadFromText(original, draftText);
       const res = await fetch(`/api/actions/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -144,63 +143,21 @@ export function ActionBoard() {
     }
   };
 
-  const createPrototypeAction = async () => {
-    setSaving("create");
-    setError(null);
-    try {
-      const stamp = new Date().toISOString();
-      const res = await fetch("/api/actions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: "Review prototype follow-up",
-          actionType: "manual",
-          summary: "A manually created action to validate the Action Board loop.",
-          reason:
-            "Prototype cards prove the approval surface before live connector signals arrive.",
-          impactLevel: "medium",
-          riskLevel: "low",
-          sourceIds: [`manual:${stamp}`],
-          draftPayload: {
-            channel: "demo",
-            body: "Quick follow-up: I reviewed this and can move it forward today.",
-          },
-          approvalRequired: true,
-          metadata: { prototype: true, createdFrom: "action-board" },
-        }),
-      });
-      if (!res.ok) throw new Error(`create ${res.status}`);
-      const data = (await res.json()) as { action: ActionItem };
-      setSelectedId(data.action.id);
-      await loadActions();
-      if (
-        statusFilter === "all" ||
-        statusFilter === data.action.status
-      ) {
-        await loadAudit(data.action.id);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to create action");
-    } finally {
-      setSaving(null);
-    }
-  };
-
   return (
     <main className="min-h-svh bg-background text-foreground">
-      <section className="border-b border-border/70 px-5 py-5 md:px-8">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <section className="px-6 py-5 lg:px-10">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 border-b border-border pb-5 md:flex-row md:items-end md:justify-between">
           <div className="max-w-3xl">
-            <div className="mb-3 inline-flex items-center gap-2 border border-hermes/40 bg-hermes/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-hermes">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
               <ShieldCheckIcon className="size-3" />
-              source backed approval board
+              approval desk
             </div>
-            <h1 className="text-2xl font-semibold tracking-normal md:text-4xl">
-              Action Board
+            <h1 className="text-3xl font-semibold tracking-[-0.02em] md:text-4xl">
+              Approval desk
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Triage work Hermes has detected, inspect the evidence, edit the
-              draft, and decide what is allowed to happen outside the system.
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              Review work Hermes prepared, inspect the evidence, edit the
+              draft, and decide what is allowed to happen outside Hermes.
             </p>
           </div>
 
@@ -208,30 +165,21 @@ export function ActionBoard() {
             <button
               type="button"
               onClick={() => void loadActions()}
-              className="inline-flex h-9 items-center gap-2 border border-border bg-card px-3 text-xs text-muted-foreground transition-colors hover:border-hermes/50 hover:text-foreground"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-hermes/50 hover:text-foreground"
             >
               <RefreshCwIcon className="size-3.5" />
               refresh
-            </button>
-            <button
-              type="button"
-              onClick={() => void createPrototypeAction()}
-              disabled={saving === "create"}
-              className="inline-flex h-9 items-center gap-2 bg-hermes px-3 text-xs font-medium text-hermes-foreground transition-opacity disabled:opacity-50"
-            >
-              <MessageSquarePlusIcon className="size-3.5" />
-              create prototype action
             </button>
           </div>
         </div>
       </section>
 
-      <section className="grid min-h-[calc(100svh-142px)] grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)]">
-        <aside className="border-b border-border/70 lg:border-b-0 lg:border-r">
-          <div className="border-b border-border/70 p-4">
-            <div className="mb-3 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+      <section className="mx-auto grid min-h-[calc(100svh-150px)] max-w-[min(1480px,calc(100vw-2rem))] grid-cols-1 border border-border bg-card lg:grid-cols-[390px_minmax(0,1fr)]">
+        <aside className="border-b border-border lg:border-b-0 lg:border-r">
+          <div className="border-b border-border/70 p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <SlidersHorizontalIcon className="size-3.5" />
-              filters
+              Review list
             </div>
             <div className="flex flex-wrap gap-2">
               {STATUS_FILTERS.map((status) => (
@@ -239,9 +187,9 @@ export function ActionBoard() {
                   key={status}
                   type="button"
                   onClick={() => setStatusFilter(status)}
-                  className={`border px-2.5 py-1.5 text-[11px] transition-colors ${
+                  className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
                     statusFilter === status
-                      ? "border-hermes bg-hermes text-hermes-foreground"
+                      ? "border-foreground bg-foreground text-background"
                       : "border-border bg-card text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -257,7 +205,7 @@ export function ActionBoard() {
             </div>
           )}
 
-          <div className="divide-y divide-border/70">
+          <div className="divide-y divide-border">
             {loading ? (
               <ActionListSkeleton />
             ) : actions.length ? (
@@ -273,16 +221,16 @@ export function ActionBoard() {
                   }`}
                 >
                   <div className="mb-2 flex items-start justify-between gap-3">
-                    <h2 className="line-clamp-2 text-sm font-medium">
-                      {action.title}
+                    <h2 className="line-clamp-2 text-sm font-semibold">
+                      {cleanText(action.title)}
                     </h2>
                     <StatusPill status={action.status} />
                   </div>
                   <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
-                    {action.summary ?? action.reason ?? "No summary yet."}
+                    {cleanText(action.summary ?? action.reason ?? "No summary yet.")}
                   </p>
                   <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>{action.actionType}</span>
+                    <span>{humanActionType(action.actionType)}</span>
                     <span>{relativeTime(action.updatedAt)}</span>
                   </div>
                 </button>
@@ -303,21 +251,21 @@ export function ActionBoard() {
               saving={saving}
               onSaveDraft={updateDraft}
               onApprove={(id) =>
-                mutateAction(id, "approve", { reason: "approved in Action Board" })
+                mutateAction(id, "approve", { reason: "approved in Actions" })
               }
               onReject={(id) =>
-                mutateAction(id, "reject", { reason: "rejected in Action Board" })
+                mutateAction(id, "reject", { reason: "rejected in Actions" })
               }
               onSnooze={(id) =>
                 mutateAction(id, "snooze", {
-                  reason: "snoozed in Action Board",
+                  reason: "snoozed in Actions",
                   snoozedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
                 })
               }
               onDelegate={(id) =>
                 mutateAction(id, "delegate", {
                   delegateTo: "teammate",
-                  reason: "delegated from prototype board",
+                  reason: "delegated from action inbox",
                 })
               }
             />
@@ -351,62 +299,75 @@ function ActionDetail({
   onSnooze: (id: string) => void | Promise<void>;
   onDelegate: (id: string) => void | Promise<void>;
 }) {
-  const [draftText, setDraftText] = useState(formatDraft(action.draftPayload));
+  const [draftText, setDraftText] = useState(extractDraftText(action.draftPayload));
+  const [tab, setTab] = useState<DetailTab>("summary");
   const canTransition = isTransitionReady(action.status);
   const canEdit = isEditable(action.status);
 
   useEffect(() => {
-    setDraftText(formatDraft(action.draftPayload));
+    setDraftText(extractDraftText(action.draftPayload));
+    setTab("summary");
   }, [action.id, action.draftPayload]);
 
   return (
-    <div className="grid min-h-full grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="min-w-0 p-5 md:p-8">
-        <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
+    <div className="min-h-full min-w-0">
+      <div className="sticky top-0 z-10 border-b border-border bg-card/95 px-5 py-3 backdrop-blur md:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
             <StatusPill status={action.status} />
-            <h2 className="mt-4 max-w-4xl text-2xl font-semibold leading-tight tracking-normal md:text-3xl">
-              {action.title}
-            </h2>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-              {action.summary ?? action.reason ?? "Hermes has not added a summary."}
-            </p>
+            <span className="text-xs text-muted-foreground">
+              {humanActionType(action.actionType)} / {relativeTime(action.updatedAt)}
+            </span>
           </div>
           <div className="flex flex-wrap gap-2">
             <ActionButton
               icon={<CheckIcon className="size-3.5" />}
-              label="approve"
+              label="Approve"
               busy={saving === "approve"}
               disabled={!canTransition}
               onClick={() => onApprove(action.id)}
             />
             <ActionButton
               icon={<XIcon className="size-3.5" />}
-              label="reject"
+              label="Reject"
               busy={saving === "reject"}
               disabled={!canTransition}
               onClick={() => onReject(action.id)}
             />
             <ActionButton
               icon={<Clock3Icon className="size-3.5" />}
-              label="snooze"
+              label="Snooze"
               busy={saving === "snooze"}
               disabled={!canTransition}
               onClick={() => onSnooze(action.id)}
             />
             <ActionButton
               icon={<UserPlusIcon className="size-3.5" />}
-              label="delegate"
+              label="Delegate"
               busy={saving === "delegate"}
               disabled={!canTransition}
               onClick={() => onDelegate(action.id)}
             />
           </div>
         </div>
+      </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <Metric label="impact" value={action.impactLevel} />
-          <Metric label="risk" value={action.riskLevel} />
+      <div className="p-5 md:p-6">
+        <div className="mb-5">
+          <div>
+            <h2 className="max-w-4xl text-2xl font-semibold leading-tight tracking-normal md:text-3xl">
+              {cleanText(action.title)}
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+              {cleanText(action.summary ?? action.reason ?? "Hermes has not added a summary.")}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <Metric label="kind" value={humanActionType(action.actionType)} />
+          <Metric label="impact" value={humanLevel(action.impactLevel)} />
+          <Metric label="risk" value={humanLevel(action.riskLevel)} />
           <Metric
             label="confidence"
             value={
@@ -417,81 +378,130 @@ function ActionDetail({
           />
         </div>
 
-        <section className="mt-6 border border-border bg-card/70">
-          <div className="border-b border-border px-4 py-3">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-              <SendIcon className="size-3.5" />
-              editable draft payload
-            </div>
-          </div>
-          <textarea
-            value={draftText}
-            onChange={(event) => setDraftText(event.target.value)}
-            disabled={!canEdit}
-            className="min-h-56 w-full resize-y bg-transparent p-4 font-mono text-xs leading-6 outline-none"
-            spellCheck={false}
+        <div className="mt-5 flex flex-wrap gap-1 border-b border-border">
+          <TabButton
+            active={tab === "summary"}
+            icon={<ListChecksIcon className="size-3.5" />}
+            label="Summary"
+            onClick={() => setTab("summary")}
           />
-          <div className="border-t border-border px-4 py-3">
-            <button
-              type="button"
-              onClick={() => onSaveDraft(action.id, draftText)}
-              disabled={saving === "update" || !canEdit}
-              className="inline-flex h-8 items-center gap-2 bg-foreground px-3 text-xs text-background disabled:opacity-50"
-            >
-              <FileClockIcon className="size-3.5" />
-              save draft
-            </button>
-          </div>
-        </section>
-
-        <section className="mt-6 border border-border bg-card/50 p-4">
-          <div className="mb-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-            why this action exists
-          </div>
-          <p className="text-sm leading-6">
-            {action.reason ??
-              "This prototype action was created manually. Live connector actions will cite provider evidence here."}
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {action.sourceIds.length ? (
-              action.sourceIds.map((source) => (
-                <span
-                  key={source}
-                  className="border border-border bg-background px-2 py-1 font-mono text-[11px] text-muted-foreground"
-                >
-                  {source}
-                </span>
-              ))
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                source placeholder
-              </span>
-            )}
-          </div>
-        </section>
-      </div>
-
-      <aside className="border-t border-border p-5 xl:border-l xl:border-t-0">
-        <div className="mb-4 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-          audit timeline
+          <TabButton
+            active={tab === "draft"}
+            icon={<SendIcon className="size-3.5" />}
+            label="Draft"
+            onClick={() => setTab("draft")}
+          />
+          <TabButton
+            active={tab === "evidence"}
+            icon={<FileTextIcon className="size-3.5" />}
+            label="Evidence"
+            onClick={() => setTab("evidence")}
+          />
+          <TabButton
+            active={tab === "history"}
+            icon={<HistoryIcon className="size-3.5" />}
+            label="History"
+            onClick={() => setTab("history")}
+          />
         </div>
-        <div className="space-y-3">
-          {audit.length ? (
-            audit.map((event) => (
-              <div key={event.id} className="border-l border-hermes/50 pl-3">
-                <div className="text-xs font-medium">{event.eventType}</div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {new Date(event.createdAt).toLocaleString()}
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              No audit events yet.
+
+        {tab === "summary" ? (
+          <section className="mt-4 border border-border bg-background/65 p-4">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">
+              Why Hermes surfaced this
             </div>
-          )}
-        </div>
-      </aside>
+            <p className="text-sm leading-6">
+              {cleanText(action.reason ?? action.summary ?? "No reason attached yet.")}
+            </p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <SummaryRow label="Proposed work" value={cleanText(action.title)} />
+              <SummaryRow label="Approval" value={action.approvalRequired ? "Required before sending" : "Not required"} />
+              <SummaryRow label="Detected" value={new Date(action.createdAt).toLocaleString()} />
+              <SummaryRow label="Updated" value={new Date(action.updatedAt).toLocaleString()} />
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "draft" ? (
+          <section className="mt-4 border border-border bg-background/65">
+            <div className="border-b border-border px-4 py-3">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <SendIcon className="size-3.5" />
+                Draft to review
+              </div>
+            </div>
+            <textarea
+              value={draftText}
+              onChange={(event) => setDraftText(event.target.value)}
+              disabled={!canEdit}
+              className="min-h-64 w-full resize-y bg-transparent p-4 text-sm leading-6 outline-none"
+              spellCheck={false}
+            />
+            <div className="border-t border-border px-4 py-3">
+              <button
+                type="button"
+                onClick={() => onSaveDraft(action.id, draftText)}
+                disabled={saving === "update" || !canEdit}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-3 text-xs font-medium text-background disabled:opacity-50"
+              >
+                <FileClockIcon className="size-3.5" />
+                Save draft
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "evidence" ? (
+          <section className="mt-4 border border-border bg-background/65 p-4">
+            <div className="mb-3 text-xs font-medium text-muted-foreground">
+            Evidence
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {action.sourceIds.length ? (
+                action.sourceIds.map((source, index) => (
+                  <span
+                    key={source}
+                    className="rounded-lg border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground"
+                    title={source}
+                  >
+                    Evidence source {index + 1}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  No source attached yet
+                </span>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "history" ? (
+          <section className="mt-4 border border-border bg-background/65 p-4">
+            <div className="mb-4 text-xs font-medium text-muted-foreground">
+              Review history
+            </div>
+            <div className="space-y-3">
+              {audit.length ? (
+                audit.map((event) => (
+                  <div key={event.id} className="border-l border-hermes/50 pl-3">
+                    <div className="text-xs font-medium">
+                      {humanEvent(event.eventType)}
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {new Date(event.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No audit events yet.
+                </div>
+              )}
+            </div>
+          </section>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -549,6 +559,42 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function TabButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`-mb-px inline-flex h-10 items-center gap-2 border-b px-3 text-xs font-medium transition-colors ${
+        active
+          ? "border-foreground text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
 function ActionListSkeleton() {
   return (
     <div className="space-y-0 divide-y divide-border/70">
@@ -563,10 +609,61 @@ function ActionListSkeleton() {
   );
 }
 
-function formatDraft(value: unknown) {
+function extractDraftText(value: unknown) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2);
+  if (isRecord(value)) {
+    for (const key of ["body", "message", "text", "content", "draft"]) {
+      const candidate = value[key];
+      if (typeof candidate === "string" && candidate.trim()) return candidate;
+    }
+  }
+  return "";
+}
+
+function draftPayloadFromText(original: unknown, text: string) {
+  if (typeof original === "string") return text;
+  if (isRecord(original)) {
+    for (const key of ["body", "message", "text", "content", "draft"]) {
+      if (typeof original[key] === "string") {
+        return { ...original, [key]: text };
+      }
+    }
+    return { ...original, body: text };
+  }
+  return { body: text };
+}
+
+function cleanText(value: string) {
+  return value
+    .replaceAll("&#39;", "'")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&amp;", "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function humanActionType(value: string) {
+  const normalized = value.replace(/_/g, " ");
+  if (normalized.includes("gmail")) return "Email";
+  if (normalized.includes("slack")) return "Slack";
+  if (normalized.includes("calendar")) return "Calendar";
+  if (normalized.includes("github")) return "GitHub";
+  if (normalized.includes("linear")) return "Linear";
+  return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function humanLevel(value: string) {
+  if (!value) return "Unknown";
+  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function humanEvent(value: string) {
+  return value.replaceAll(".", " ").replace(/_/g, " ");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function relativeTime(value: string) {

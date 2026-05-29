@@ -80,7 +80,15 @@ export class ConversationStore {
 
     const id = conversationDbId(conversationId);
     const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT id, conversation_id, role, content, name, tool_calls, metadata, created_at
+      SELECT
+        m.id,
+        m.conversation_id,
+        m.role,
+        m.content,
+        m.name,
+        m.tool_calls,
+        m.metadata,
+        m.created_at
       FROM messages m
       INNER JOIN conversations c ON c.id = m.conversation_id
       WHERE m.conversation_id = ${id}::uuid
@@ -137,7 +145,15 @@ export class ConversationStore {
   async allMessages(conversationId: string): Promise<ConversationMessage[]> {
     const id = conversationDbId(conversationId);
     const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT id, conversation_id, role, content, name, tool_calls, metadata, created_at
+      SELECT
+        m.id,
+        m.conversation_id,
+        m.role,
+        m.content,
+        m.name,
+        m.tool_calls,
+        m.metadata,
+        m.created_at
       FROM messages m
       INNER JOIN conversations c ON c.id = m.conversation_id
       WHERE m.conversation_id = ${id}::uuid

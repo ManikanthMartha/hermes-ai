@@ -23,15 +23,6 @@ interface ComposerProps {
   placeholder?: string;
 }
 
-/**
- * Native <textarea> composer — no PromptInput, no InputGroup chrome.
- * Auto-grows up to a 8-line cap, renders a copper block caret (`▮`), and
- * handles Enter/Ctrl+Enter submit, Shift+Enter newline, Esc stop.
- *
- * Built custom because the Elements PromptInput stack had a text-color/caret
- * bug in dark mode that swallowed typed input. This implementation is 50
- * lines + transparent about exactly what happens on each keystroke.
- */
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(
   function Composer({ onSubmit, onStop, isStreaming, placeholder }, ref) {
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -46,7 +37,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       [],
     );
 
-    // Auto-grow up to 8 lines. Keep in sync with `max-h-48` below (~192px / 24 lh).
     useEffect(() => {
       const el = textareaRef.current;
       if (!el) return;
@@ -59,22 +49,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       if (!trimmed || isStreaming) return;
       onSubmit(trimmed);
       setValue("");
-      // Explicit focus — some browsers drop focus after clearing.
       requestAnimationFrame(() => textareaRef.current?.focus());
     }, [value, isStreaming, onSubmit]);
 
     const onKeyDown = useCallback(
       (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        // Escape always stops if we're streaming.
         if (e.key === "Escape" && isStreaming) {
           e.preventDefault();
           onStop();
           return;
         }
         if (e.key === "Enter") {
-          // Shift+Enter → newline (native behavior, do nothing).
           if (e.shiftKey) return;
-          // Enter / Ctrl+Enter / Cmd+Enter → submit.
           e.preventDefault();
           submit();
         }
@@ -84,19 +70,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
 
     return (
       <form
-        className="border-border/60 bg-background border-t"
+        className="border-t border-border bg-background/95"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <div className="mx-auto w-full max-w-3xl px-6 py-4">
-          <div className="border-border/70 focus-within:border-hermes/50 focus-within:ring-hermes/10 flex items-start gap-3 rounded-sm border bg-transparent px-3 py-3 transition-colors focus-within:ring-2">
+        <div className="mx-auto w-full max-w-3xl px-6 py-5">
+          <div className="flex items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm transition-colors focus-within:border-hermes/50 focus-within:ring-4 focus-within:ring-hermes/10">
             <span
               aria-hidden
-              className="text-hermes mt-[3px] shrink-0 select-none text-[13px]"
+              className="mt-[3px] shrink-0 select-none text-[13px] text-hermes"
             >
-              ▸
+              &gt;
             </span>
             <textarea
               ref={textareaRef}
@@ -106,46 +92,44 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
               rows={1}
               spellCheck={false}
               autoComplete="off"
-              placeholder={placeholder ?? "ask anything. enter to send."}
+              placeholder={placeholder ?? "Ask about a meeting, action, source, or memory"}
               className={cn(
-                "caret-hermes placeholder:text-muted-foreground/60",
+                "caret-hermes placeholder:text-muted-foreground",
                 "min-h-[1.5rem] max-h-48 w-full resize-none overflow-y-auto",
-                "bg-transparent text-[13.5px] leading-[1.55] text-foreground",
+                "bg-transparent text-sm leading-[1.6] text-foreground",
                 "outline-none focus:outline-none",
               )}
-              // Explicit color — guards against any parent CSS setting
-              // `color: transparent` or similar.
               style={{ color: "var(--foreground)" }}
             />
             {isStreaming ? (
               <button
                 type="button"
                 onClick={onStop}
-                className="border-border hover:border-destructive/50 hover:text-destructive inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-2.5 py-1 text-[11px] uppercase tracking-wider transition-colors"
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium transition-colors hover:border-destructive/50 hover:text-destructive"
                 aria-label="Stop"
               >
                 <SquareIcon className="size-2.5 fill-current" />
-                stop
+                Stop
               </button>
             ) : (
               <button
                 type="submit"
                 disabled={!value.trim()}
                 className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-2.5 py-1 text-[11px] uppercase tracking-wider transition-colors",
+                  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors",
                   value.trim()
-                    ? "border-hermes/60 text-hermes hover:bg-hermes hover:text-hermes-foreground"
-                    : "border-border/50 text-muted-foreground/50 cursor-not-allowed",
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "cursor-not-allowed border-border/70 text-muted-foreground/60",
                 )}
                 aria-label="Send"
               >
-                send
-                <ArrowRightIcon className="size-2.5" />
+                Send
+                <ArrowRightIcon className="size-3" />
               </button>
             )}
           </div>
 
-          <div className="text-muted-foreground/60 mt-2 flex items-center gap-2 px-1 font-mono text-[10.5px] tracking-wide">
+          <div className="mt-2 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
             <Kbd>enter</Kbd>
             <span>send</span>
             <Sep />
@@ -169,12 +153,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="border-border/60 text-foreground/80 rounded-[3px] border px-1 py-px font-mono text-[10px] leading-none">
+    <kbd className="rounded-md border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] leading-none text-foreground/80">
       {children}
     </kbd>
   );
 }
 
 function Sep() {
-  return <span className="text-muted-foreground/30">·</span>;
+  return <span className="text-muted-foreground/40">/</span>;
 }

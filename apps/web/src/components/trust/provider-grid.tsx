@@ -49,9 +49,9 @@ export function ConnectionsView() {
 
   return (
     <TrustFrame
-      title="Connections"
-      label="provider access"
-      description="Verify env-based provider setup and sync recent provider activity without exposing secrets."
+      title="Source access"
+      label="connected workspace"
+      description="Review connected apps, recent activity, and sync health."
       onRefresh={refreshAll}
       loading={loading}
       error={error ?? connectorError}
@@ -70,34 +70,24 @@ export function ConnectionsView() {
 }
 
 export function TrustView() {
-  const { integrations, audit, failures, loading, error, refresh, writeAuditTest } =
+  const { integrations, audit, failures, loading, error, refresh } =
     useTrustData({ includeAudit: true, includeFailures: true });
   const connected = integrations.filter((item) => item.status === "connected").length;
   const failing = failures.filter((item) => item.status === "open").length;
 
   return (
     <TrustFrame
-      title="Trust Center"
-      label="health, audit, failures"
-      description="Hermes should show what it can access, what is fresh, what failed, and what it did. No hidden sync failures."
+      title="Trust & settings"
+      label="visibility and control"
+      description="See what Hermes can access, what changed, and what needs attention before it affects your work."
       onRefresh={refresh}
       loading={loading}
       error={error}
-      action={
-        <button
-          type="button"
-          onClick={() => void writeAuditTest()}
-          className="inline-flex h-9 items-center gap-2 border border-border bg-card px-3 text-xs text-muted-foreground hover:border-hermes/50 hover:text-foreground"
-        >
-          <ShieldCheckIcon className="size-3.5" />
-          write audit test
-        </button>
-      }
     >
       <div className="grid gap-4 md:grid-cols-3">
-        <TrustMetric label="providers connected" value={`${connected}/${integrations.length}`} />
-        <TrustMetric label="open failures" value={`${failing}`} />
-        <TrustMetric label="audit events loaded" value={`${audit.length}`} />
+        <TrustMetric label="sources connected" value={`${connected}/${integrations.length}`} />
+        <TrustMetric label="needs attention" value={`${failing}`} />
+        <TrustMetric label="recent events" value={`${audit.length}`} />
       </div>
 
       <div className="mt-6">
@@ -140,7 +130,9 @@ function TrustFrame({
               <ShieldCheckIcon className="size-3.5" />
               {label}
             </div>
-            <h1 className="text-2xl font-semibold md:text-4xl">{title}</h1>
+            <h1 className="text-3xl font-semibold tracking-[-0.02em] md:text-4xl">
+              {title}
+            </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
               {description}
             </p>
@@ -150,7 +142,7 @@ function TrustFrame({
             <button
               type="button"
               onClick={() => void onRefresh()}
-              className="inline-flex h-9 items-center gap-2 bg-hermes px-3 text-xs text-hermes-foreground disabled:opacity-50"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50"
               disabled={loading}
             >
               <RefreshCwIcon className="size-3.5" />
@@ -209,39 +201,30 @@ function ProviderCard({
 }) {
   const state = providerState(integration);
   const Icon = state.icon;
-  const mode = connectorMode(integration);
-  const configKind =
-    developerConfigured(integration)
-      ? "env configured"
-      : mode === "env"
-        ? "env missing"
-        : mode === "prototype"
-          ? "prototype data removed"
-          : "not configured";
+  const connectionLabel = accessLabel(integration);
 
   return (
-    <article className="border border-border bg-card/60 p-4">
+    <article className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-medium">
             {PROVIDER_LABELS[integration.provider] ?? integration.provider}
           </h2>
-          <p className="mt-1 text-xs text-muted-foreground">{configKind}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{connectionLabel}</p>
         </div>
-        <div className={`grid size-9 place-items-center border ${state.className}`}>
+        <div className={`grid size-9 place-items-center rounded-xl border ${state.className}`}>
           <Icon className="size-4" />
         </div>
       </div>
 
       <div className="grid gap-2 text-xs text-muted-foreground">
         <InfoRow label="status" value={statusLabel(integration)} />
-        <InfoRow label="mode" value={mode} />
         <InfoRow
           label="last sync"
           value={formatTime(integration.lastSuccessfulSync ?? integration.lastAttemptedSync)}
         />
         <InfoRow
-          label="scopes"
+          label="permissions"
           value={integration.scopes.length ? `${integration.scopes.length}` : "none"}
         />
       </div>
@@ -275,13 +258,13 @@ function SourceObjectPanel({
   sourceObjects: SourceObject[];
 }) {
   return (
-    <section className="border border-border bg-card/50 p-4">
+    <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>
           <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-            observed sources
+            recent activity
           </div>
-          <h2 className="mt-2 text-base font-medium">Connector activity</h2>
+          <h2 className="mt-2 text-base font-medium">Recent source activity</h2>
         </div>
         <div className="text-xs text-muted-foreground">
           {sourceObjects.length} loaded
@@ -323,15 +306,15 @@ function SourceObjectPanel({
 
 function AuditPanel({ events }: { events: AuditEvent[] }) {
   return (
-    <section className="border border-border bg-card/50 p-4">
+    <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="mb-4 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-        recent audit
+        recent changes
       </div>
       <div className="space-y-3">
         {events.length ? (
           events.slice(0, 12).map((event) => (
             <div key={event.id} className="border-l border-hermes/50 pl-3">
-              <div className="text-xs font-medium">{event.eventType}</div>
+              <div className="text-xs font-medium">{humanEvent(event.eventType)}</div>
               <div className="mt-1 text-[11px] text-muted-foreground">
                 {event.objectType}
                 {event.objectId ? ` / ${event.objectId}` : ""} -{" "}
@@ -349,9 +332,9 @@ function AuditPanel({ events }: { events: AuditEvent[] }) {
 
 function FailurePanel({ failures }: { failures: FailureEvent[] }) {
   return (
-    <section className="border border-border bg-card/50 p-4">
+    <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="mb-4 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-        failures
+        needs attention
       </div>
       <div className="space-y-3">
         {failures.length ? (
@@ -373,7 +356,7 @@ function FailurePanel({ failures }: { failures: FailureEvent[] }) {
 
 function TrustMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border border-border bg-card/50 p-4">
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </div>
@@ -424,14 +407,20 @@ function developerConfigured(integration: IntegrationHealth) {
   return Boolean(integration.config?.developerConfigured);
 }
 
-function connectorMode(integration: IntegrationHealth) {
-  if (integration.config?.connectorMode === "env") return "env";
-  if (integration.config?.connectorMode === "prototype") return "prototype";
-  return "real";
+function statusLabel(integration: IntegrationHealth) {
+  return integration.status.replaceAll("_", " ");
 }
 
-function statusLabel(integration: IntegrationHealth) {
-  return integration.status;
+function accessLabel(integration: IntegrationHealth) {
+  if (integration.status === "connected") return "Connected by you";
+  if (integration.status === "degraded") return "Needs review";
+  if (integration.status === "error") return "Connection issue";
+  if (developerConfigured(integration)) return "Ready to connect";
+  return "Not connected";
+}
+
+function humanEvent(value: string) {
+  return value.replaceAll(".", " ").replaceAll("_", " ");
 }
 
 function formatTime(value: string | null) {
@@ -492,19 +481,8 @@ function useTrustData(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const writeAuditTest = async () => {
-    setError(null);
-    try {
-      const res = await fetch("/api/trust/audit", { method: "POST" });
-      if (!res.ok) throw new Error(`audit test ${res.status}`);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to write audit test");
-    }
-  };
-
   const memo = useMemo(
-    () => ({ integrations, audit, failures, loading, error, refresh, writeAuditTest }),
+    () => ({ integrations, audit, failures, loading, error, refresh }),
     [integrations, audit, failures, loading, error],
   );
   return memo;
@@ -527,7 +505,7 @@ function useConnectorActivity() {
       setSourceObjects(data.sourceObjects ?? []);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "failed to load connector activity",
+        err instanceof Error ? err.message : "failed to load source activity",
       );
     }
   };

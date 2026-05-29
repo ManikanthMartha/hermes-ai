@@ -3,11 +3,6 @@
 import { useEffect, useState } from "react";
 import { Brand } from "./brand";
 
-type Health = {
-  status: "ok" | "degraded";
-  services: { neon: string; upstash: string };
-};
-
 type ChatStatus = "submitted" | "streaming" | "ready" | "error";
 
 interface StatusStripProps {
@@ -29,28 +24,7 @@ const STATUS_TONE: Record<ChatStatus, string> = {
 };
 
 export function StatusStrip({ chatStatus }: StatusStripProps) {
-  const [health, setHealth] = useState<Health | null>(null);
   const [clock, setClock] = useState(() => fmtTime());
-
-  // Poll /api/health every 20s through the Next.js proxy.
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await fetch("/api/health", { cache: "no-store" });
-        const body = (await res.json()) as Health;
-        if (!cancelled) setHealth(body);
-      } catch {
-        /* ignore - we render "-" for unknown */
-      }
-    };
-    void tick();
-    const id = setInterval(tick, 20_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
 
   // Tick the clock every 10s to reflect minute changes without churn.
   useEffect(() => {
@@ -59,29 +33,15 @@ export function StatusStrip({ chatStatus }: StatusStripProps) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-sm">
-      <div className="mx-auto flex h-10 max-w-5xl items-center justify-between gap-4 px-6 text-[11.5px]">
+    <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-sm">
+      <div className="mx-auto flex h-12 max-w-5xl items-center justify-between gap-4 px-6 text-xs">
         <div className="flex items-center gap-4">
           <Brand />
         </div>
-        <div className="flex items-center gap-4 font-mono text-muted-foreground/80">
-          <Pair k="neon">
-            <span className={tone(health?.services.neon)}>
-              {health?.services.neon ?? "-"}
-            </span>
-          </Pair>
-          <Sep />
-          <Pair k="upstash">
-            <span className={tone(health?.services.upstash)}>
-              {health?.services.upstash ?? "-"}
-            </span>
-          </Pair>
-          <Sep />
-          <Pair k="agent">
-            <span className={STATUS_TONE[chatStatus]}>
-              {STATUS_LABEL[chatStatus]}
-            </span>
-          </Pair>
+        <div className="hidden items-center gap-3 text-muted-foreground sm:flex">
+          <span className={STATUS_TONE[chatStatus]}>
+            {chatStatus === "ready" ? "Ready" : STATUS_LABEL[chatStatus]}
+          </span>
           <Sep />
           <span className="tabular-nums text-muted-foreground">{clock}</span>
         </div>
@@ -90,25 +50,8 @@ export function StatusStrip({ chatStatus }: StatusStripProps) {
   );
 }
 
-function Pair({ k, children }: { k: string; children: React.ReactNode }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="text-muted-foreground/60">{k}</span>
-      <span className="text-muted-foreground/40">&gt;</span>
-      {children}
-    </span>
-  );
-}
-
 function Sep() {
-  return <span className="text-muted-foreground/20">/</span>;
-}
-
-function tone(state?: string) {
-  if (!state) return "text-muted-foreground/50";
-  if (state === "connected") return "text-emerald-400/90";
-  if (state === "error") return "text-destructive";
-  return "text-muted-foreground";
+  return <span className="text-muted-foreground/30">/</span>;
 }
 
 function fmtTime() {

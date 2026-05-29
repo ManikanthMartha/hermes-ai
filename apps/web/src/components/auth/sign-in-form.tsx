@@ -53,7 +53,7 @@ export function SignInForm() {
       <div className="grid min-h-svh lg:grid-cols-[minmax(0,1fr)_460px]">
         <section className="hidden border-r border-border bg-card/40 p-10 lg:flex lg:flex-col lg:justify-between">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center border border-hermes/50 bg-hermes/10 text-hermes">
+            <div className="grid size-10 place-items-center rounded-xl border border-border bg-background text-hermes shadow-sm">
               <ActivityIcon className="size-4" />
             </div>
             <div>
@@ -63,30 +63,32 @@ export function SignInForm() {
           </div>
 
           <div className="max-w-2xl">
-            <div className="mb-4 inline-flex border border-hermes/40 bg-hermes/10 px-2.5 py-1 text-xs uppercase tracking-[0.16em] text-hermes">
+            <div className="mb-5 inline-flex rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground">
               secure workspace
             </div>
-            <h1 className="text-5xl font-semibold leading-tight tracking-tight">
-              One account, isolated tools, personal action memory.
+            <h1 className="max-w-3xl font-display text-7xl leading-[0.9] tracking-[-0.045em]">
+              Your workday, <span className="italic">already briefed.</span>
             </h1>
             <p className="mt-5 max-w-xl text-sm leading-6 text-muted-foreground">
-              Sign in before connecting Slack, Calendar, GitHub, Linear, or Sentry. Hermes stores credentials under your user-owned workspace instead of shared environment keys.
+              Sign in to connect your sources, review prepared actions, and keep
+              workspace memory scoped to your account.
             </p>
           </div>
 
           <div className="text-xs text-muted-foreground">
-            Credentials are encrypted server-side. Provider data is scoped per signed-in user.
+            Credentials are encrypted server-side. Source data is scoped per
+            signed-in user.
           </div>
         </section>
 
         <section className="flex items-center justify-center px-5 py-10">
           <form
             onSubmit={(event) => void submit(event)}
-            className="w-full max-w-sm border border-border bg-card/70 p-5"
+            className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-sm"
           >
             <div className="mb-6">
               <div className="mb-4 flex items-center gap-3 lg:hidden">
-                <div className="grid size-9 place-items-center border border-hermes/50 bg-hermes/10 text-hermes">
+                <div className="grid size-9 place-items-center rounded-xl border border-border bg-background text-hermes">
                   <ActivityIcon className="size-4" />
                 </div>
                 <div>
@@ -94,11 +96,11 @@ export function SignInForm() {
                   <div className="text-xs text-muted-foreground">Action OS</div>
                 </div>
               </div>
-              <h2 className="text-2xl font-semibold">
+              <h2 className="text-2xl font-semibold tracking-tight">
                 {mode === "sign-in" ? "Sign in" : "Create account"}
               </h2>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Use email and password for this prototype. Organization auth can be layered in later with Better Auth&apos;s org plugin.
+                Use email and password to access your Hermes workspace.
               </p>
             </div>
 
@@ -109,7 +111,7 @@ export function SignInForm() {
                   <input
                     value={name}
                     onChange={(event) => setName(event.target.value)}
-                    className="h-10 border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-hermes"
+                    className="h-10 rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-foreground/40"
                     autoComplete="name"
                   />
                 </label>
@@ -119,7 +121,7 @@ export function SignInForm() {
                 <input
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  className="h-10 border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-hermes"
+                  className="h-10 rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-foreground/40"
                   type="email"
                   autoComplete="email"
                   required
@@ -130,7 +132,7 @@ export function SignInForm() {
                 <input
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="h-10 border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-hermes"
+                  className="h-10 rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-foreground/40"
                   type="password"
                   autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
                   minLength={8}
@@ -140,7 +142,7 @@ export function SignInForm() {
             </div>
 
             {error && (
-              <div className="mt-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <div className="mt-4 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 {error}
               </div>
             )}
@@ -148,7 +150,7 @@ export function SignInForm() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 bg-hermes px-4 text-sm font-medium text-hermes-foreground disabled:opacity-60"
+              className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
             >
               {loading && <Loader2Icon className="size-4 animate-spin" />}
               {mode === "sign-in" ? "Sign in" : "Create account"}

@@ -52,10 +52,6 @@ export function MeetingsView() {
     [meetings, selectedId],
   );
 
-  const preparedCount = meetings.filter(
-    (meeting) => meeting.prepStatus === "prepared",
-  ).length;
-
   const syncCalendar = async () => {
     setBusy("sync");
     setError(null);
@@ -89,27 +85,21 @@ export function MeetingsView() {
 
   return (
     <div className="min-h-svh overflow-x-hidden bg-background text-foreground">
-      <header className="border-b border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--card)_78%,transparent),transparent)] px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto flex w-full max-w-[min(1480px,calc(100vw-2rem))] min-w-0 flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+      <header className="px-6 py-5 lg:px-10">
+        <div className="mx-auto flex w-full max-w-5xl min-w-0 flex-col gap-4 border-b border-border pb-5 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
             <div className="mb-4 flex flex-wrap items-center gap-2">
-              <span className="inline-flex h-7 items-center gap-2 border border-hermes/40 bg-hermes/10 px-2.5 text-[11px] uppercase text-hermes">
-                <CalendarClockIcon className="size-3.5" />
-                Calendar + Slack
-              </span>
-              <span className="inline-flex h-7 items-center border border-border/70 bg-card/60 px-2.5 text-[11px] text-muted-foreground">
-                {meetings.length} meetings
-              </span>
-              <span className="inline-flex h-7 items-center border border-border/70 bg-card/60 px-2.5 text-[11px] text-muted-foreground">
-                {preparedCount} prepared
+              <span className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-card px-3 text-xs font-medium text-muted-foreground">
+                <CalendarClockIcon className="size-3.5 text-hermes" />
+                Meeting intelligence
               </span>
             </div>
-            <h1 className="text-3xl font-semibold tracking-normal sm:text-4xl">
-              Meeting Prep
+            <h1 className="text-3xl font-semibold tracking-[-0.02em] md:text-4xl">
+              Meetings
             </h1>
             <p className="mt-3 max-w-[23rem] break-words text-sm leading-6 text-muted-foreground sm:max-w-3xl">
-              Calendar events enriched with Slack context, agenda notes, risks,
-              and follow-ups.
+              Upcoming meetings prepared with source-backed context, agenda
+              notes, risks, and follow-ups.
             </p>
           </div>
 
@@ -118,7 +108,7 @@ export function MeetingsView() {
               type="button"
               onClick={() => void loadMeetings()}
               disabled={loading}
-              className="inline-flex h-10 items-center gap-2 border border-border bg-card/80 px-3 text-xs text-muted-foreground transition-colors hover:border-hermes/50 hover:text-foreground disabled:opacity-60"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-hermes/50 hover:text-foreground disabled:opacity-60"
             >
               <RefreshCwIcon className="size-3.5" />
               Refresh
@@ -127,44 +117,111 @@ export function MeetingsView() {
               type="button"
               onClick={() => void syncCalendar()}
               disabled={busy === "sync"}
-              className="inline-flex h-10 items-center gap-2 bg-hermes px-3 text-xs font-medium text-hermes-foreground transition-opacity disabled:opacity-60"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity disabled:opacity-60"
             >
               {busy === "sync" ? (
                 <Loader2Icon className="size-3.5 animate-spin" />
               ) : (
                 <CalendarClockIcon className="size-3.5" />
               )}
-              Sync calendar
+              Sync meetings
             </button>
           </div>
         </div>
 
         {error && (
-          <div className="mx-auto mt-4 w-full max-w-[min(1480px,calc(100vw-2rem))] border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="mx-auto mt-4 w-full max-w-5xl rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {error}
           </div>
         )}
       </header>
 
-      <main className="mx-auto w-full max-w-[min(1480px,calc(100vw-2rem))] space-y-5 py-5">
-        <MeetingStrip
-          meetings={meetings}
-          selectedId={selected?.id ?? null}
-          loading={loading}
-          onSelect={setSelectedId}
-        />
-
-        {selected ? (
-          <MeetingWorkspace
-            meeting={selected}
-            preparing={busy === `prepare:${selected.id}`}
-            onPrepare={() => prepare(selected.id)}
+      <main className="mx-auto w-full max-w-[min(1480px,calc(100vw-2rem))] px-6 pb-6 lg:px-10">
+        {!loading && meetings.length === 0 ? (
+          <MeetingsSetupState
+            syncing={busy === "sync"}
+            onSync={() => void syncCalendar()}
           />
         ) : (
-          <EmptyWorkspace />
+          <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+            <MeetingStrip
+              meetings={meetings}
+              selectedId={selected?.id ?? null}
+              loading={loading}
+              onSelect={setSelectedId}
+            />
+
+            <div className="min-w-0">
+              {selected ? (
+                <MeetingWorkspace
+                  meeting={selected}
+                  preparing={busy === `prepare:${selected.id}`}
+                  onPrepare={() => prepare(selected.id)}
+                />
+              ) : (
+                <EmptyWorkspace />
+              )}
+            </div>
+          </div>
         )}
       </main>
     </div>
+  );
+}
+
+function MeetingsSetupState({
+  syncing,
+  onSync,
+}: {
+  syncing: boolean;
+  onSync: () => void;
+}) {
+  const preparedItems = [
+    "Agenda from the calendar description and related messages",
+    "Open questions before the call starts",
+    "Risks, blockers, and follow-ups tied to source context",
+  ];
+
+  return (
+    <section className="grid gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div>
+        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <CalendarClockIcon className="size-4 text-hermes" />
+          No meetings loaded
+        </div>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          Sync your calendar to prepare upcoming calls.
+        </h2>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+          Hermes reads upcoming events, then prepares meeting notes from the
+          event details and connected workspace context.
+        </p>
+        <button
+          type="button"
+          onClick={onSync}
+          disabled={syncing}
+          className="mt-5 inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
+        >
+          {syncing ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : (
+            <CalendarClockIcon className="size-4" />
+          )}
+          Sync meetings
+        </button>
+      </div>
+      <div className="rounded-2xl border border-border bg-background p-4">
+        <div className="text-sm font-medium">What Hermes prepares</div>
+        <div className="mt-4 space-y-3">
+          {preparedItems.map((item) => (
+            <div key={item} className="flex gap-3 text-sm leading-6">
+              <CheckCircle2Icon className="mt-1 size-4 shrink-0 text-emerald-500" />
+              <span className="text-muted-foreground">{item}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -180,25 +237,25 @@ function MeetingStrip({
   onSelect: (id: string) => void;
 }) {
   return (
-    <section className="border border-border/70 bg-card/35">
+    <section className="border border-border bg-card">
       <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
         <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
           <CalendarClockIcon className="size-3.5 text-hermes" />
           Upcoming meetings
         </div>
         <span className="text-[11px] text-muted-foreground">
-          {meetings.length || "none"}
+          {meetings.length ? `${meetings.length}` : "none"}
         </span>
       </div>
 
       {loading ? (
-        <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 p-3">
           {Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="h-28 border border-border/60 bg-muted/40" />
           ))}
         </div>
       ) : meetings.length ? (
-        <div className="grid gap-3 p-3 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid gap-2 p-3">
           {meetings.map((meeting) => {
             const active = selectedId === meeting.id;
             return (
@@ -206,7 +263,7 @@ function MeetingStrip({
                 key={meeting.id}
                 type="button"
                 onClick={() => onSelect(meeting.id)}
-                className={`min-w-0 border px-4 py-3 text-left transition-colors ${
+                className={`min-w-0 rounded-xl border px-3 py-3 text-left transition-colors ${
                   active
                     ? "border-hermes/70 bg-hermes/10"
                     : "border-border/70 bg-background/35 hover:border-hermes/40"
@@ -232,7 +289,7 @@ function MeetingStrip({
         </div>
       ) : (
         <div className="p-5 text-sm text-muted-foreground">
-          No meetings loaded. Sync Calendar to fetch upcoming events.
+          No meetings loaded. Sync meetings to fetch upcoming events.
         </div>
       )}
     </section>
@@ -253,8 +310,8 @@ function MeetingWorkspace({
 
   return (
     <section className="space-y-5">
-      <div className="border border-border/70 bg-card/55">
-        <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] xl:p-7">
+      <div className="border border-border bg-card">
+        <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_240px]">
           <div className="min-w-0">
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <PrepPill status={meeting.prepStatus} />
@@ -268,7 +325,7 @@ function MeetingWorkspace({
               )}
             </div>
 
-            <h2 className="max-w-5xl text-3xl font-semibold leading-tight tracking-normal md:text-5xl">
+            <h2 className="max-w-4xl text-2xl font-semibold leading-tight tracking-normal md:text-3xl">
               {meeting.title}
             </h2>
 
@@ -284,10 +341,10 @@ function MeetingWorkspace({
                 ) : (
                   <SparklesIcon className="size-3.5" />
                 )}
-                Prepare from Slack
+                Prepare brief
               </button>
               {meeting.htmlLink && (
-                <ExternalLink href={meeting.htmlLink} label="Calendar" />
+                <ExternalLink href={meeting.htmlLink} label="Event source" />
               )}
               {meeting.meetingUrl && (
                 <ExternalLink href={meeting.meetingUrl} label="Join link" />
@@ -416,7 +473,7 @@ function EvidencePanel({ brief }: { brief: MeetingBrief }) {
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
             <SearchIcon className="size-3.5 text-hermes" />
-            Source trail
+            Evidence used
           </div>
           <span className="text-[11px] text-muted-foreground">
             {brief.sourceIds.length}
@@ -455,7 +512,7 @@ function PrepEmptyState() {
       </div>
       <h3 className="text-base font-medium">No prep generated</h3>
       <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-        Prepare this meeting once the Calendar details are synced.
+        Prepare this meeting once event details are synced.
       </p>
     </section>
   );
@@ -463,14 +520,14 @@ function PrepEmptyState() {
 
 function EmptyWorkspace() {
   return (
-    <section className="grid min-h-[420px] place-items-center border border-border/70 bg-card/35 p-8 text-center">
+    <section className="grid min-h-[360px] place-items-center border border-border bg-card p-8 text-center">
       <div>
         <div className="mx-auto mb-4 grid size-12 place-items-center border border-border bg-background/50 text-hermes">
           <CalendarClockIcon className="size-5" />
         </div>
         <h2 className="text-lg font-medium">No meeting selected</h2>
         <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-          Sync Calendar to load upcoming meetings.
+          Sync meetings to load upcoming meetings.
         </p>
       </div>
     </section>
