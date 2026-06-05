@@ -4,7 +4,9 @@
   "description": "Multi-agent AI operations platform",
   "scripts": {
     "dev": "turbo dev --filter=@hermes/web --filter=@hermes/agent-runtime --filter=@hermes/mcp-gateway",
+    "dev:landing": "turbo dev --filter=@hermes/landing-page",
     "build": "turbo build",
+    "build:landing": "pnpm --filter @hermes/landing-page build",
     "lint": "turbo lint",
     "type-check": "turbo type-check",
     "db:push": "prisma db push",
