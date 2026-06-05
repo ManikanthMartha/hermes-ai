@@ -198,9 +198,6 @@ importers:
       '@hermes/mcp-linear':
         specifier: workspace:*
         version: link:../../packages/mcp-servers/linear
-      '@hermes/mcp-outlook':
-        specifier: workspace:*
-        version: link:../../packages/mcp-servers/outlook
       '@hermes/mcp-sentry':
         specifier: workspace:*
         version: link:../../packages/mcp-servers/sentry
@@ -419,34 +416,6 @@ importers:
       '@linear/sdk':
         specifier: ^82.0.0
         version: 82.0.0(graphql@16.13.2)
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
-      express:
-        specifier: ^5.2.1
-        version: 5.2.1
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/express':
-        specifier: ^5.0.6
-        version: 5.0.6
-      '@types/node':
-        specifier: ^25.6.0
-        version: 25.6.0
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
-      typescript:
-        specifier: ^6.0.2
-        version: 6.0.2
-
-  packages/mcp-servers/outlook:
-    dependencies:
-      '@hermes/shared':
-        specifier: workspace:*
-        version: link:../../shared
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
