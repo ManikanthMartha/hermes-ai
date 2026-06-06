@@ -71,6 +71,30 @@ const workflowOutputs = [
   "Memory update",
 ];
 
+const footerColumns = [
+  {
+    title: "Product",
+    links: ["Action OS", "Meeting prep", "Company memory", "Approvals"],
+  },
+  {
+    title: "Connectors",
+    links: ["Slack", "Email", "Calendar", "Projects", "Code", "Finance"],
+  },
+  {
+    title: "Company",
+    links: ["About", "Security", "Contact", "Early access"],
+  },
+  {
+    title: "Use cases",
+    links: [
+      "Executive visibility",
+      "Customer updates",
+      "Launch readiness",
+      "Operating rhythm",
+    ],
+  },
+];
+
 const FONT_STACK =
   'Manrope, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
@@ -424,7 +448,7 @@ function ActionWorkbench() {
           <span>Draft</span>
           <p>
             Alex, quick update: the rollout is still moving. One integration
-            dependency shifted, so I’m confirming sign-off before we commit to
+            dependency shifted, so I&apos;m confirming sign-off before we commit to
             Monday.
           </p>
         </div>
@@ -767,14 +791,47 @@ function LeadForm() {
 function Footer() {
   return (
     <footer className="site-footer">
-      <div className="brand-lockup">
-        <span className="brand-mark">H</span>
-        <span>
-          Hermes
-          <small>Action OS</small>
-        </span>
+      <div className="footer-top">
+        <div className="footer-mark" aria-hidden="true">
+          H
+        </div>
+        <nav className="footer-columns" aria-label="Footer navigation">
+          {footerColumns.map((column) => (
+            <div key={column.title} className="footer-column">
+              <span>{column.title}</span>
+              {column.links.map((link) => (
+                <a key={link} href={link === "Early access" ? "#book-demo" : "#top"}>
+                  {link}
+                </a>
+              ))}
+            </div>
+          ))}
+        </nav>
       </div>
-      <p>Prepared action across the systems your company already uses.</p>
+
+      <MeasuredText
+        as="strong"
+        className="footer-headline"
+        font="500 96px Manrope"
+        lineHeight={104}
+        text="Prepared action for the companies moving fastest."
+      />
+
+      <div className="footer-bottom">
+        <div className="footer-socials" aria-label="Social links">
+          <a href="#top" aria-label="LinkedIn">
+            in
+          </a>
+          <a href="#top" aria-label="X">
+            X
+          </a>
+        </div>
+        <div className="footer-legal">
+          <span>Copyright © 2026 Hermes. All rights reserved.</span>
+          <a href="#top">Terms</a>
+          <a href="#top">Privacy</a>
+        </div>
+      </div>
     </footer>
   );
 }
