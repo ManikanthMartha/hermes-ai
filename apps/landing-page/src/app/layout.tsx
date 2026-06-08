@@ -1,11 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Geist_Mono, Instrument_Serif, Manrope } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif, Manrope } from "next/font/google";
 import "./globals.css";
 
 const sans = Manrope({
   variable: "--font-sans",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+});
+
+const webSans = Geist({
+  variable: "--font-web-sans",
+  subsets: ["latin"],
   display: "swap",
 });
 
@@ -49,7 +55,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${sans.variable} ${serif.variable} ${mono.variable}`}
+      className={`${sans.variable} ${webSans.variable} ${serif.variable} ${mono.variable}`}
     >
       <body>{children}</body>
     </html>

@@ -14,6 +14,8 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 import type { CSSProperties, FormEvent } from "react";
 import { createElement, useEffect, useState } from "react";
+import { DemoWorkspace } from "@/components/demo-workspace";
+import type { DemoLead } from "@/demo/types";
 import { connectorStack } from "@/lib/brand-icons";
 
 const navItems = ["Platform", "Actions", "Meetings", "Memory"];
@@ -98,8 +100,43 @@ const footerColumns = [
 const FONT_STACK =
   'Manrope, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
+const demoUnlockedKey = "hermes_demo_v1_unlocked";
+const demoLeadKey = "hermes_demo_v1_lead";
+
 export function LandingPage() {
   const reduceMotion = useReducedMotion();
+  const [demoUnlocked, setDemoUnlocked] = useState(false);
+  const [demoLead, setDemoLead] = useState<DemoLead | null>(null);
+
+  useEffect(() => {
+    const unlocked = window.localStorage.getItem(demoUnlockedKey) === "true";
+    const savedLead = window.localStorage.getItem(demoLeadKey);
+    if (unlocked) setDemoUnlocked(true);
+    if (savedLead) {
+      try {
+        setDemoLead(JSON.parse(savedLead) as DemoLead);
+      } catch {
+        window.localStorage.removeItem(demoLeadKey);
+      }
+    }
+  }, []);
+
+  function unlockDemo(lead: DemoLead) {
+    window.localStorage.setItem(demoUnlockedKey, "true");
+    window.localStorage.setItem(demoLeadKey, JSON.stringify(lead));
+    setDemoLead(lead);
+    setDemoUnlocked(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function exitDemo() {
+    setDemoUnlocked(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  if (demoUnlocked) {
+    return <DemoWorkspace lead={demoLead} onExit={exitDemo} />;
+  }
 
   return (
     <main className="landing-root">
@@ -109,7 +146,7 @@ export function LandingPage() {
       <ActionSection />
       <MeetingSection />
       <MemorySection />
-      <LeadSection />
+      <LeadSection onDemoUnlocked={unlockDemo} />
       <Footer />
     </main>
   );
@@ -133,7 +170,7 @@ function SiteChrome() {
         ))}
       </nav>
       <a className="nav-cta" href="#book-demo">
-        Book demo
+        Try demo
       </a>
     </header>
   );
@@ -185,7 +222,7 @@ function HeroSection({ reduceMotion }: { reduceMotion: boolean }) {
             transition={{ duration: 0.65, delay: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
             <a href="#book-demo" className="primary-cta">
-              Book a demo
+              Try live demo
               <ArrowRightIcon size={16} />
             </a>
             <a href="#platform" className="secondary-cta">
@@ -640,23 +677,23 @@ function MemorySection() {
   );
 }
 
-function LeadSection() {
+function LeadSection({ onDemoUnlocked }: { onDemoUnlocked: (lead: DemoLead) => void }) {
   return (
     <section id="book-demo" className="section lead-section">
       <div className="lead-copy">
-        <div className="section-label">Early access</div>
+        <div className="section-label">Interactive demo</div>
         <MeasuredText
           as="h2"
           font="700 60px Manrope"
           lineHeight={58}
-          text="Bring Hermes into your operating rhythm."
+          text="Try the Hermes command layer with sample company data."
         />
         <MeasuredText
           as="p"
           className="section-copy"
           font="500 20px Manrope"
           lineHeight={32}
-          text="Tell us how your company currently tracks action across tools. We will follow up with a focused walkthrough."
+          text="Share your details first. We will send the request to Slack, unlock the demo, and follow up when the full product is ready."
         />
         <div className="lead-proof">
           <div>
@@ -673,12 +710,12 @@ function LeadSection() {
           </div>
         </div>
       </div>
-      <LeadForm />
+      <LeadForm onDemoUnlocked={onDemoUnlocked} />
     </section>
   );
 }
 
-function LeadForm() {
+function LeadForm({ onDemoUnlocked }: { onDemoUnlocked: (lead: DemoLead) => void }) {
   const [state, setState] = useState<"idle" | "submitting" | "success" | "error">(
     "idle",
   );
@@ -692,6 +729,15 @@ function LeadForm() {
     const form = event.currentTarget;
     const formData = new FormData(form);
     const payload = Object.fromEntries(formData.entries());
+    const lead: DemoLead = {
+      name: stringFromFormData(formData, "name"),
+      email: stringFromFormData(formData, "email"),
+      company: stringFromFormData(formData, "company"),
+      role: stringFromFormData(formData, "role"),
+      companySize: stringFromFormData(formData, "companySize"),
+      interest: stringFromFormData(formData, "interest"),
+      message: stringFromFormData(formData, "message"),
+    };
 
     try {
       const res = await fetch("/api/lead", {
@@ -699,11 +745,13 @@ function LeadForm() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { accepted?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Could not submit request.");
+      if (!data.accepted) throw new Error("Please check the form details and try again.");
       setState("success");
-      setMessage("Request received. We will follow up shortly.");
+      setMessage("Access granted. Opening the Hermes demo.");
       form.reset();
+      onDemoUnlocked(lead);
     } catch (error) {
       setState("error");
       setMessage(
@@ -763,6 +811,7 @@ function LeadForm() {
             <option value="" disabled>
               Select focus
             </option>
+            <option>Trying the live demo</option>
             <option>Action OS</option>
             <option>Meeting prep</option>
             <option>Company memory</option>
@@ -780,7 +829,7 @@ function LeadForm() {
         />
       </label>
       <button className="submit-button" disabled={state === "submitting"}>
-        {state === "submitting" ? "Sending request" : "Request walkthrough"}
+        {state === "submitting" ? "Sending to Slack" : "Enter demo"}
         <ArrowRightIcon size={16} />
       </button>
       {message && <p className={`form-status ${state}`}>{message}</p>}
@@ -834,6 +883,11 @@ function Footer() {
       </div>
     </footer>
   );
+}
+
+function stringFromFormData(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value : "";
 }
 
 function BrandGlyph({ src, name }: { src: string; name: string }) {

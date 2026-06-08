@@ -32,12 +32,12 @@ export async function POST(req: Request) {
   }
 
   if (parsed.website) {
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, accepted: false });
   }
 
   const launchLabel = process.env.NEXT_PUBLIC_LAUNCH_LABEL ?? "Website";
   const lines = [
-    `*${escapeSlack(parsed.name)}* requested a Hermes demo`,
+    `*${escapeSlack(parsed.name)}* entered the Hermes interactive demo`,
     `Company: ${escapeSlack(parsed.company)}`,
     `Role: ${escapeSlack(parsed.role)}`,
     `Email: ${escapeSlack(parsed.email)}`,
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      text: `${parsed.company} requested a Hermes demo`,
+      text: `${parsed.company} entered the Hermes interactive demo`,
       blocks: [
         {
           type: "section",
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, accepted: true });
 }
 
 function escapeSlack(value: string) {
