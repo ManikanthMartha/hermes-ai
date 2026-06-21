@@ -1,6 +1,7 @@
 export const INTEGRATION_PROVIDERS = [
   "gmail",
   "calendar",
+  "outlook",
   "slack",
   "github",
   "linear",

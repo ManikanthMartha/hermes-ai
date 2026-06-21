@@ -591,6 +591,8 @@ async function fetchProviderSources(
       return fetchGitHubSources(workspaceContext);
     case "gmail":
       return fetchGmailSources(workspaceContext);
+    case "outlook":
+      return fetchOutlookSources(workspaceContext);
     case "calendar":
       return fetchCalendarSources(workspaceContext);
     case "linear":
@@ -722,6 +724,69 @@ async function fetchGmailSources(
           messageId: message.id,
           threadId: message.threadId,
           from: headers.from,
+          subject,
+        },
+      },
+    };
+  });
+}
+
+async function fetchOutlookSources(
+  workspaceContext: WorkspaceContext,
+): Promise<ConnectorSource[]> {
+  const accessToken = await outlookAccessToken(workspaceContext.workspaceId);
+  const data = await microsoftGraph<{
+    value?: Array<{
+      id: string;
+      conversationId?: string;
+      subject?: string;
+      receivedDateTime?: string;
+      from?: { emailAddress?: { name?: string; address?: string } };
+      bodyPreview?: string;
+      webLink?: string;
+    }>;
+  }>(
+    "/me/mailFolders/inbox/messages?$top=5&$orderby=receivedDateTime%20desc&$select=id,conversationId,subject,receivedDateTime,from,bodyPreview,webLink",
+    accessToken,
+  );
+
+  return (data.value ?? []).map((message) => {
+    const subject = message.subject ?? "(no subject)";
+    const from = formatGraphAddress(message.from?.emailAddress);
+    return {
+      objectType: "email",
+      externalId: message.id,
+      title: subject,
+      url: message.webLink ?? null,
+      sourceUserId: from,
+      occurredAt: message.receivedDateTime ? new Date(message.receivedDateTime) : null,
+      rawPayload: {
+        id: message.id,
+        conversationId: message.conversationId,
+        from,
+        subject,
+        date: message.receivedDateTime,
+        snippet: message.bodyPreview,
+        url: message.webLink,
+      },
+      normalized: {
+        summary: message.bodyPreview ?? subject,
+        from,
+      },
+      action: {
+        actionType: "outlook_review",
+        title: `Review Outlook: ${subject}`,
+        summary: message.bodyPreview ?? subject,
+        reason: "The Outlook connector found a recent inbox message.",
+        impactLevel: "medium",
+        riskLevel: "low",
+        dueAt: null,
+        draftPayload: {
+          tool: "outlook",
+          operation: "review_message",
+          messageId: message.id,
+          conversationId: message.conversationId,
+          from,
           subject,
         },
       },
@@ -982,6 +1047,40 @@ async function googleAccessToken(workspaceId: string): Promise<string> {
   return token.access_token;
 }
 
+async function outlookAccessToken(workspaceId: string): Promise<string> {
+  const clientId = requireEnv("MICROSOFT_CLIENT_ID", "Microsoft");
+  const clientSecret = requireEnv("MICROSOFT_CLIENT_SECRET", "Microsoft");
+  const credential = await getProviderCredential("outlook", workspaceId);
+  if (!credential) throw new ConnectorConfigurationError("Outlook is not connected");
+  if (!credential.refreshToken) {
+    if (credential.accessToken) return credential.accessToken;
+    throw new ConnectorConfigurationError("Outlook is connected but has no usable token");
+  }
+
+  const tenant = process.env.MICROSOFT_TENANT ?? "common";
+  const token = await fetchJson<{ access_token?: string }>(
+    `https://login.microsoftonline.com/${encodeURIComponent(
+      tenant,
+    )}/oauth2/v2.0/token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: credential.refreshToken,
+        grant_type: "refresh_token",
+      }),
+    },
+    "Microsoft",
+  );
+
+  if (!token.access_token) {
+    throw new Error("Microsoft did not return an access token");
+  }
+  return token.access_token;
+}
+
 async function connectedToken(
   provider: "slack" | "github" | "linear" | "sentry",
   workspaceId: string,
@@ -996,6 +1095,19 @@ async function googleApi<T>(url: string, accessToken: string): Promise<T> {
     url,
     { headers: { Authorization: `Bearer ${accessToken}` } },
     "Google",
+  );
+}
+
+async function microsoftGraph<T>(path: string, accessToken: string): Promise<T> {
+  return fetchJson<T>(
+    `https://graph.microsoft.com/v1.0${path}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Prefer: 'outlook.body-content-type="text"',
+      },
+    },
+    "Microsoft Graph",
   );
 }
 
@@ -1056,6 +1168,13 @@ function gmailHeaders(message: GmailMessage): Record<string, string> {
     if (header.name && header.value) out[header.name.toLowerCase()] = header.value;
   }
   return out;
+}
+
+function formatGraphAddress(
+  value: { name?: string; address?: string } | undefined,
+): string | undefined {
+  if (!value) return undefined;
+  return value.name ? `${value.name} <${value.address ?? ""}>` : value.address;
 }
 
 async function getSignalByIdempotencyKey(

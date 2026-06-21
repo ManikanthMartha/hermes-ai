@@ -45,11 +45,15 @@ API_SECRET_KEY=
 MCP_GATEWAY_SECRET=
 MCP_SLACK_URL=http://<mcp-gateway-private-domain>/slack/mcp
 MCP_GMAIL_URL=http://<mcp-gateway-private-domain>/gmail/mcp
+MCP_OUTLOOK_URL=http://<mcp-gateway-private-domain>/outlook/mcp
 MCP_GITHUB_URL=http://<mcp-gateway-private-domain>/github/mcp
 MCP_LINEAR_URL=http://<mcp-gateway-private-domain>/linear/mcp
 MCP_SENTRY_URL=http://<mcp-gateway-private-domain>/sentry/mcp
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+MICROSOFT_CLIENT_ID=
+MICROSOFT_CLIENT_SECRET=
+MICROSOFT_TENANT=common
 SLACK_CLIENT_ID=
 SLACK_CLIENT_SECRET=
 GITHUB_CLIENT_ID=
@@ -69,6 +73,7 @@ Register these callback URLs in each provider app:
 ```text
 https://<web-domain>/api/connections/oauth/calendar/callback
 https://<web-domain>/api/connections/oauth/gmail/callback
+https://<web-domain>/api/connections/oauth/outlook/callback
 https://<web-domain>/api/connections/oauth/slack/callback
 https://<web-domain>/api/connections/oauth/github/callback
 https://<web-domain>/api/connections/oauth/linear/callback
@@ -80,6 +85,7 @@ Local development callbacks:
 ```text
 http://localhost:3000/api/connections/oauth/calendar/callback
 http://localhost:3000/api/connections/oauth/gmail/callback
+http://localhost:3000/api/connections/oauth/outlook/callback
 http://localhost:3000/api/connections/oauth/slack/callback
 http://localhost:3000/api/connections/oauth/github/callback
 http://localhost:3000/api/connections/oauth/linear/callback
@@ -95,6 +101,14 @@ Google:
 - Add the web callback URLs above.
 - For internal testing, keep the OAuth consent screen in testing and add team members as test users.
 - For external users, publish the app and complete Google's verification if requested for sensitive Gmail scopes.
+
+Microsoft Outlook:
+
+- Create a Microsoft Entra app registration.
+- Add a Web platform redirect URI for the Outlook callback URL above.
+- Use delegated permissions, not application permissions.
+- Hermes requests `offline_access`, `User.Read`, `Mail.ReadWrite`, `Mail.Send`, and `Calendars.ReadWrite`.
+- Use `MICROSOFT_TENANT=common` for work/school plus personal accounts, or a tenant ID for single-tenant testing.
 
 Slack:
 

@@ -1,12 +1,12 @@
 {
-  "name": "@hermes/mcp-gateway",
+  "name": "@hermes/mcp-outlook",
   "version": "1.0.0",
-  "description": "User-scoped hosted MCP gateway for Hermes connectors",
+  "description": "",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
     "type-check": "tsc --noEmit",
-    "build": "tsc --noEmit"
+    "start": "tsx src/index.ts"
   },
   "keywords": [],
   "author": "",
@@ -14,20 +14,25 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@hermes/mcp-github": "workspace:*",
-    "@hermes/mcp-gmail": "workspace:*",
-    "@hermes/mcp-linear": "workspace:*",
-    "@hermes/mcp-outlook": "workspace:*",
-    "@hermes/mcp-sentry": "workspace:*",
-    "@hermes/mcp-slack": "workspace:*",
     "@hermes/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^25.6.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./tools": {
+      "types": "./src/tools.ts",
+      "default": "./src/tools.ts"
+    }
   }
 }

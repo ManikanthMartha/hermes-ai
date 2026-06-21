@@ -38,6 +38,7 @@ import {
   handleCalendarSyncNow,
   handleGetMeeting,
   handleListMeetings,
+  handleOutlookCalendarSyncNow,
   handlePrepareMeeting,
 } from "./routes/meetings.js";
 import { requireRuntimeAuth } from "./http/request-context.js";
@@ -80,6 +81,7 @@ app.get("/api/meetings", handleListMeetings);
 app.get("/api/meetings/:id", handleGetMeeting);
 app.post("/api/meetings/:id/prepare", handlePrepareMeeting);
 app.post("/api/calendar/sync-now", handleCalendarSyncNow);
+app.post("/api/outlook/calendar/sync-now", handleOutlookCalendarSyncNow);
 // Google Calendar webhooks are intentionally disabled for local prototype mode.
 // Manual sync and the optional Calendar polling watcher drive ingestion instead.
 // app.post("/api/calendar/watch/start", handleCalendarWatchStart);

@@ -66,6 +66,11 @@ function getClient(context: WorkspaceContext): ClientEntry {
         headers,
         reconnect: { enabled: true, maxAttempts: 5, delayMs: 2000 },
       },
+      outlook: {
+        url: process.env.MCP_OUTLOOK_URL ?? "http://127.0.0.1:4110/outlook/mcp",
+        headers,
+        reconnect: { enabled: true, maxAttempts: 5, delayMs: 2000 },
+      },
     },
   });
   const entry = { client, toolsCache: null };
@@ -160,4 +165,5 @@ export const WRITE_TOOLS: ReadonlySet<string> = new Set([
   "linear__create_issue",
   "linear__update_status",
   "gmail__send_message",
+  "outlook__send_message",
 ]);

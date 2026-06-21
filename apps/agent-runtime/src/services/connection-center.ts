@@ -13,7 +13,14 @@ import {
   type WorkspaceContext,
 } from "@hermes/shared";
 
-type OAuthProvider = "gmail" | "calendar" | "slack" | "github" | "linear" | "sentry";
+type OAuthProvider =
+  | "gmail"
+  | "calendar"
+  | "outlook"
+  | "slack"
+  | "github"
+  | "linear"
+  | "sentry";
 
 type ProviderDefinition = {
   provider: OAuthProvider;
@@ -74,6 +81,21 @@ export const CONNECTION_PROVIDERS: ProviderDefinition[] = [
     envKeys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
     scopes: ["https://www.googleapis.com/auth/gmail.modify"],
     description: "Read and draft email workflows with user-authorized mailbox access.",
+  },
+  {
+    provider: "outlook",
+    label: "Outlook",
+    category: "communications",
+    authKind: "oauth",
+    envKeys: ["MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"],
+    scopes: [
+      "offline_access",
+      "User.Read",
+      "Mail.ReadWrite",
+      "Mail.Send",
+      "Calendars.ReadWrite",
+    ],
+    description: "Read Outlook mail, draft/send messages, and sync Outlook calendar events.",
   },
   {
     provider: "slack",
@@ -463,6 +485,19 @@ function buildAuthorizeUrl(
     return url.toString();
   }
 
+  if (definition.provider === "outlook") {
+    const tenant = process.env.MICROSOFT_TENANT ?? "common";
+    const url = new URL(
+      `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/authorize`,
+    );
+    url.searchParams.set("client_id", requiredEnv("MICROSOFT_CLIENT_ID"));
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("scope", definition.scopes.join(" "));
+    url.searchParams.set("state", state);
+    return url.toString();
+  }
+
   if (definition.provider === "github") {
     const url = new URL("https://github.com/login/oauth/authorize");
     url.searchParams.set("client_id", requiredEnv("GITHUB_CLIENT_ID"));
@@ -514,6 +549,20 @@ async function exchangeCode(
         redirect_uri: redirectUri,
       },
       basicAuth(requiredEnv("SLACK_CLIENT_ID"), requiredEnv("SLACK_CLIENT_SECRET")),
+    );
+  }
+
+  if (definition.provider === "outlook") {
+    const tenant = process.env.MICROSOFT_TENANT ?? "common";
+    return postForm<Record<string, unknown>>(
+      `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`,
+      {
+        client_id: requiredEnv("MICROSOFT_CLIENT_ID"),
+        client_secret: requiredEnv("MICROSOFT_CLIENT_SECRET"),
+        code,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      },
     );
   }
 
@@ -591,6 +640,19 @@ async function providerAccount(
       const json = (await data.json()) as { data?: { viewer?: unknown } };
       return isRecord(json.data?.viewer) ? json.data.viewer : {};
     }
+  }
+  if (provider === "outlook" && typeof token.access_token === "string") {
+    const me = await fetchProviderJson<{
+      id?: unknown;
+      displayName?: unknown;
+      mail?: unknown;
+      userPrincipalName?: unknown;
+    }>("https://graph.microsoft.com/v1.0/me", token.access_token);
+    return {
+      id: safeString(me?.id) ?? null,
+      displayName: safeString(me?.displayName) ?? null,
+      email: safeString(me?.mail) ?? safeString(me?.userPrincipalName) ?? null,
+    };
   }
   if (provider === "sentry" && typeof token.access_token === "string") {
     const orgs = await fetchProviderJson<Array<{ slug?: unknown; name?: unknown }>>(

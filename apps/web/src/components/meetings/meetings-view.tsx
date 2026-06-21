@@ -52,15 +52,23 @@ export function MeetingsView() {
     [meetings, selectedId],
   );
 
-  const syncCalendar = async () => {
-    setBusy("sync");
+  const syncCalendar = async (source: "google" | "outlook") => {
+    setBusy(`sync:${source}`);
     setError(null);
     try {
-      const res = await fetch("/api/calendar/sync-now", { method: "POST" });
-      if (!res.ok) throw new Error(`calendar sync ${res.status}`);
+      const endpoint =
+        source === "google"
+          ? "/api/calendar/sync-now"
+          : "/api/outlook/calendar/sync-now";
+      const res = await fetch(endpoint, { method: "POST" });
+      if (!res.ok) throw new Error(`${source} calendar sync ${res.status}`);
       await loadMeetings();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to sync calendar");
+      setError(
+        err instanceof Error
+          ? err.message
+          : `failed to sync ${source} calendar`,
+      );
     } finally {
       setBusy(null);
     }
@@ -115,16 +123,29 @@ export function MeetingsView() {
             </button>
             <button
               type="button"
-              onClick={() => void syncCalendar()}
-              disabled={busy === "sync"}
+              onClick={() => void syncCalendar("google")}
+              disabled={busy === "sync:google"}
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity disabled:opacity-60"
             >
-              {busy === "sync" ? (
+              {busy === "sync:google" ? (
                 <Loader2Icon className="size-3.5 animate-spin" />
               ) : (
                 <CalendarClockIcon className="size-3.5" />
               )}
-              Sync meetings
+              Sync Google
+            </button>
+            <button
+              type="button"
+              onClick={() => void syncCalendar("outlook")}
+              disabled={busy === "sync:outlook"}
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-hermes px-3 text-xs font-medium text-hermes-foreground transition-opacity disabled:opacity-60"
+            >
+              {busy === "sync:outlook" ? (
+                <Loader2Icon className="size-3.5 animate-spin" />
+              ) : (
+                <CalendarClockIcon className="size-3.5" />
+              )}
+              Sync Outlook
             </button>
           </div>
         </div>
@@ -139,8 +160,10 @@ export function MeetingsView() {
       <main className="mx-auto w-full max-w-[min(1480px,calc(100vw-2rem))] px-6 pb-6 lg:px-10">
         {!loading && meetings.length === 0 ? (
           <MeetingsSetupState
-            syncing={busy === "sync"}
-            onSync={() => void syncCalendar()}
+            syncingGoogle={busy === "sync:google"}
+            syncingOutlook={busy === "sync:outlook"}
+            onSyncGoogle={() => void syncCalendar("google")}
+            onSyncOutlook={() => void syncCalendar("outlook")}
           />
         ) : (
           <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -170,11 +193,15 @@ export function MeetingsView() {
 }
 
 function MeetingsSetupState({
-  syncing,
-  onSync,
+  syncingGoogle,
+  syncingOutlook,
+  onSyncGoogle,
+  onSyncOutlook,
 }: {
-  syncing: boolean;
-  onSync: () => void;
+  syncingGoogle: boolean;
+  syncingOutlook: boolean;
+  onSyncGoogle: () => void;
+  onSyncOutlook: () => void;
 }) {
   const preparedItems = [
     "Agenda from the calendar description and related messages",
@@ -196,19 +223,34 @@ function MeetingsSetupState({
           Hermes reads upcoming events, then prepares meeting notes from the
           event details and connected workspace context.
         </p>
-        <button
-          type="button"
-          onClick={onSync}
-          disabled={syncing}
-          className="mt-5 inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
-        >
-          {syncing ? (
-            <Loader2Icon className="size-4 animate-spin" />
-          ) : (
-            <CalendarClockIcon className="size-4" />
-          )}
-          Sync meetings
-        </button>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onSyncGoogle}
+            disabled={syncingGoogle}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          >
+            {syncingGoogle ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : (
+              <CalendarClockIcon className="size-4" />
+            )}
+            Sync Google
+          </button>
+          <button
+            type="button"
+            onClick={onSyncOutlook}
+            disabled={syncingOutlook}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-hermes px-4 text-sm font-medium text-hermes-foreground disabled:opacity-60"
+          >
+            {syncingOutlook ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : (
+              <CalendarClockIcon className="size-4" />
+            )}
+            Sync Outlook
+          </button>
+        </div>
       </div>
       <div className="rounded-2xl border border-border bg-background p-4">
         <div className="text-sm font-medium">What Hermes prepares</div>

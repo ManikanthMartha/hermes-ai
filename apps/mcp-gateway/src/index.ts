@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { registerGitHubTools } from "@hermes/mcp-github/tools";
 import { registerGmailTools } from "@hermes/mcp-gmail/tools";
 import { registerLinearTools } from "@hermes/mcp-linear/tools";
+import { registerOutlookTools } from "@hermes/mcp-outlook/tools";
 import { registerSentryTools } from "@hermes/mcp-sentry/tools";
 import { registerSlackTools } from "@hermes/mcp-slack/tools";
 import {
@@ -44,6 +45,14 @@ mountProvider("gmail", (context) => {
   const server = new McpServer({ name: "gmail", version: "0.1.0" });
   registerGmailTools(server, {
     getCredential: () => credentialFor("gmail", context),
+  });
+  return server;
+});
+
+mountProvider("outlook", (context) => {
+  const server = new McpServer({ name: "outlook", version: "0.1.0" });
+  registerOutlookTools(server, {
+    getCredential: () => credentialFor("outlook", context),
   });
   return server;
 });

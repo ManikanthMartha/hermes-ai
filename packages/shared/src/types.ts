@@ -34,6 +34,7 @@ export type MemorySource =
   | "document"
   | "gmail"
   | "calendar"
+  | "outlook"
   | "slack"
   | "github"
   | "linear"

@@ -211,7 +211,10 @@ function pickEditableKey(
     if (typeof input.description === "string") return "description";
     if (typeof input.title === "string") return "title";
   }
-  if (toolName.endsWith("send_message") && toolName.startsWith("gmail")) {
+  if (
+    toolName.endsWith("send_message") &&
+    (toolName.startsWith("gmail") || toolName.startsWith("outlook"))
+  ) {
     if (typeof input.body === "string") return "body";
   }
   // Generic fallback — pick the longest string field

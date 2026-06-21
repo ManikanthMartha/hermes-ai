@@ -7,6 +7,7 @@ import {
   prepareMeeting,
   startGoogleCalendarWatch,
   syncGoogleCalendar,
+  syncOutlookCalendar,
 } from "../services/calendar-meetings.js";
 import { logger } from "@hermes/shared";
 import { requestContext } from "../http/request-context.js";
@@ -54,6 +55,18 @@ export async function handleCalendarSyncNow(req: Request, res: Response) {
     res.status(201).json(result);
   } catch (err) {
     sendMeetingError(res, err, "failed to sync calendar");
+  }
+}
+
+export async function handleOutlookCalendarSyncNow(req: Request, res: Response) {
+  try {
+    const result = await syncOutlookCalendar({
+      ...requestContext(req),
+      trigger: "manual",
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    sendMeetingError(res, err, "failed to sync outlook calendar");
   }
 }
 

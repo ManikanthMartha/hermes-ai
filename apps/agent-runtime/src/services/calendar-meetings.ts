@@ -56,6 +56,39 @@ interface CalendarEventsResponse {
   nextSyncToken?: string;
 }
 
+interface OutlookEvent {
+  id?: string;
+  subject?: string;
+  bodyPreview?: string;
+  body?: { content?: string; contentType?: string };
+  location?: { displayName?: string };
+  onlineMeeting?: { joinUrl?: string };
+  webLink?: string;
+  start?: { dateTime?: string; timeZone?: string };
+  end?: { dateTime?: string; timeZone?: string };
+  organizer?: { emailAddress?: OutlookEmailAddress };
+  attendees?: Array<{
+    emailAddress?: OutlookEmailAddress;
+    type?: string;
+    status?: { response?: string; time?: string };
+  }>;
+  sensitivity?: string;
+  isCancelled?: boolean;
+  showAs?: string;
+  lastModifiedDateTime?: string;
+  createdDateTime?: string;
+}
+
+interface OutlookEmailAddress {
+  address?: string;
+  name?: string;
+}
+
+interface OutlookEventsResponse {
+  value?: OutlookEvent[];
+  "@odata.nextLink"?: string;
+}
+
 interface CalendarSyncStateRow {
   id: string;
   workspaceId: string;
@@ -310,6 +343,166 @@ export async function syncGoogleCalendar(
     });
 
     logger.error({ err, trigger }, "calendar sync failed");
+    throw err;
+  }
+}
+
+export async function syncOutlookCalendar(
+  input: Partial<WorkspaceContext> & { trigger?: string } = {},
+) {
+  const { workspaceId, userId } = await ensureDefaultWorkspace(input);
+  const trigger = input.trigger ?? "manual";
+  const startedAt = new Date();
+  const syncRunId = randomUUID();
+
+  await prisma.$executeRaw`
+    INSERT INTO sync_runs (
+      id,
+      workspace_id,
+      provider,
+      sync_type,
+      status,
+      objects_seen,
+      objects_changed,
+      started_at,
+      metadata
+    )
+    VALUES (
+      ${syncRunId}::uuid,
+      ${workspaceId}::uuid,
+      'outlook',
+      'calendar_manual',
+      'running',
+      0,
+      0,
+      ${startedAt},
+      ${toJson({ trigger, source: "outlook_calendar" })}::jsonb
+    )
+  `;
+
+  try {
+    const accessToken = await outlookAccessToken(workspaceId);
+    const events = await fetchOutlookCalendarEvents(accessToken);
+    let changed = 0;
+    const meetings = [];
+
+    for (const event of events) {
+      if (!event.id || shouldSkipOutlookEvent(event)) continue;
+      const source = await upsertOutlookCalendarSourceObject(workspaceId, event);
+      changed += source.changed ? 1 : 0;
+
+      if (event.isCancelled) {
+        await markMeetingCancelled(workspaceId, outlookProviderEventId(event.id));
+        continue;
+      }
+
+      const meeting = await upsertOutlookMeeting(workspaceId, source.row, event);
+      await upsertMeetingPrepAction(
+        workspaceId,
+        userId,
+        source.row,
+        meeting,
+        "Outlook Calendar",
+        "outlook",
+      );
+      meetings.push(toMeetingResponse(meeting));
+    }
+
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        objectsSeen: number;
+        objectsChanged: number;
+        completedAt: Date;
+      }>
+    >`
+      UPDATE sync_runs
+      SET status = 'completed',
+          objects_seen = ${events.length},
+          objects_changed = ${changed},
+          completed_at = now(),
+          metadata = ${toJson({
+            trigger,
+            source: "outlook_calendar",
+          })}::jsonb
+      WHERE id = ${syncRunId}::uuid
+      RETURNING
+        id::text AS "id",
+        objects_seen AS "objectsSeen",
+        objects_changed AS "objectsChanged",
+        completed_at AS "completedAt"
+    `;
+
+    await upsertIntegrationHealth({
+      workspaceId,
+      userId,
+      provider: "outlook",
+      status: "connected",
+      scopes: ["Calendars.ReadWrite"],
+      config: { connectorMode: "oauth", source: "outlook_calendar" },
+      lastSuccessfulSync: new Date(),
+      lastAttemptedSync: startedAt,
+      failureReason: null,
+    });
+
+    await audit({
+      workspaceId,
+      actorType: trigger === "manual" ? "user" : "system",
+      actorId: trigger === "manual" ? userId : undefined,
+      eventType: "sync.completed",
+      objectType: "sync_run",
+      objectId: syncRunId,
+      sourceIds: meetings
+        .map((meeting) => meeting.calendarSourceObjectId)
+        .filter((sourceId): sourceId is string => Boolean(sourceId)),
+      afterState: {
+        provider: "outlook",
+        trigger,
+        objectsSeen: events.length,
+        objectsChanged: changed,
+        meetingsChanged: meetings.length,
+      },
+    });
+
+    return {
+      syncRun: rows[0] ?? null,
+      meetings,
+      objectsSeen: events.length,
+      objectsChanged: changed,
+    };
+  } catch (err) {
+    await prisma.$executeRaw`
+      UPDATE sync_runs
+      SET status = 'failed',
+          failure_reason = 'Outlook calendar sync failed.',
+          completed_at = now(),
+          metadata = ${toJson({ trigger, source: "outlook_calendar" })}::jsonb
+      WHERE id = ${syncRunId}::uuid
+    `;
+
+    await upsertIntegrationHealth({
+      workspaceId,
+      userId,
+      provider: "outlook",
+      status: "error",
+      scopes: [],
+      config: { connectorMode: "oauth", source: "outlook_calendar" },
+      lastAttemptedSync: startedAt,
+      failureReason: "Outlook calendar sync failed.",
+    });
+
+    await recordFailure({
+      workspaceId,
+      severity: "medium",
+      source: "connector.outlook",
+      eventType: "sync.failed",
+      objectType: "sync_run",
+      objectId: syncRunId,
+      message: "Outlook calendar sync failed.",
+      details: { trigger, source: "outlook_calendar", configured: hasMicrosoftEnv() },
+    });
+
+    logger.error({ err, trigger }, "outlook calendar sync failed");
     throw err;
   }
 }
@@ -680,6 +873,52 @@ async function fetchCalendarEvents(
   }
 }
 
+async function fetchOutlookCalendarEvents(
+  accessToken: string,
+): Promise<OutlookEvent[]> {
+  const startDateTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const endDateTime = new Date(
+    Date.now() + CALENDAR_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const params = new URLSearchParams({
+    startDateTime,
+    endDateTime,
+    "$top": "250",
+    "$orderby": "start/dateTime",
+    "$select": [
+      "id",
+      "subject",
+      "bodyPreview",
+      "body",
+      "organizer",
+      "attendees",
+      "location",
+      "onlineMeeting",
+      "webLink",
+      "start",
+      "end",
+      "isCancelled",
+      "sensitivity",
+      "showAs",
+      "lastModifiedDateTime",
+      "createdDateTime",
+    ].join(","),
+  });
+
+  let url = `https://graph.microsoft.com/v1.0/me/calendarView?${params.toString()}`;
+  const events: OutlookEvent[] = [];
+  for (let page = 0; page < 10 && url; page += 1) {
+    const response = await microsoftGraph<OutlookEventsResponse>(url, accessToken, {
+      headers: {
+        Prefer: 'outlook.body-content-type="text", outlook.timezone="UTC"',
+      },
+    });
+    events.push(...(response.value ?? []));
+    url = response["@odata.nextLink"] ?? "";
+  }
+  return events;
+}
+
 async function ensureCalendarSyncState(
   workspaceId: string,
 ): Promise<CalendarSyncStateRow> {
@@ -810,6 +1049,94 @@ async function upsertCalendarSourceObject(
       updated_at AS "updatedAt"
   `;
   return { row: first(rows, "calendar source object"), changed };
+}
+
+async function upsertOutlookCalendarSourceObject(
+  workspaceId: string,
+  event: OutlookEvent,
+) {
+  const normalized = normalizeOutlookEvent(event);
+  const externalId = event.id ?? randomUUID();
+  const contentHash = createIdempotencyKey([
+    workspaceId,
+    "outlook",
+    "calendar_event",
+    externalId,
+    normalized,
+  ]);
+  const existing = await prisma.$queryRaw<Array<{ contentHash: string | null }>>`
+    SELECT content_hash AS "contentHash"
+    FROM source_objects
+    WHERE workspace_id = ${workspaceId}::uuid
+      AND provider = 'outlook'
+      AND object_type = 'calendar_event'
+      AND external_id = ${externalId}
+    LIMIT 1
+  `;
+  const changed = existing[0]?.contentHash !== contentHash;
+  const rows = await prisma.$queryRaw<SourceObjectRow[]>`
+    INSERT INTO source_objects (
+      id,
+      workspace_id,
+      provider,
+      object_type,
+      external_id,
+      title,
+      url,
+      source_user_id,
+      occurred_at,
+      raw_payload,
+      normalized,
+      content_hash,
+      last_observed_at,
+      metadata,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${randomUUID()}::uuid,
+      ${workspaceId}::uuid,
+      'outlook',
+      'calendar_event',
+      ${externalId},
+      ${normalized.title},
+      ${normalized.htmlLink ?? normalized.meetingUrl ?? null},
+      ${normalized.organizerEmail ?? null},
+      ${normalized.startAt ? new Date(normalized.startAt) : null},
+      ${toJson(event)}::jsonb,
+      ${toJson(normalized)}::jsonb,
+      ${contentHash},
+      now(),
+      ${toJson({ source: "outlook_calendar" })}::jsonb,
+      now(),
+      now()
+    )
+    ON CONFLICT (workspace_id, provider, object_type, external_id) DO UPDATE
+    SET title = EXCLUDED.title,
+        url = EXCLUDED.url,
+        source_user_id = EXCLUDED.source_user_id,
+        occurred_at = EXCLUDED.occurred_at,
+        raw_payload = EXCLUDED.raw_payload,
+        normalized = EXCLUDED.normalized,
+        content_hash = EXCLUDED.content_hash,
+        last_observed_at = now(),
+        metadata = EXCLUDED.metadata,
+        updated_at = now()
+    RETURNING
+      id::text AS "id",
+      workspace_id::text AS "workspaceId",
+      provider,
+      object_type AS "objectType",
+      external_id AS "externalId",
+      title,
+      url,
+      occurred_at AS "occurredAt",
+      normalized,
+      last_observed_at AS "lastObservedAt",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+  `;
+  return { row: first(rows, "outlook calendar source object"), changed };
 }
 
 async function upsertSlackSourceObject(
@@ -983,6 +1310,99 @@ async function upsertMeeting(
   return first(rows, "meeting");
 }
 
+async function upsertOutlookMeeting(
+  workspaceId: string,
+  sourceObject: SourceObjectRow,
+  event: OutlookEvent,
+) {
+  const normalized = normalizeOutlookEvent(event);
+  if (!event.id) throw new Error("outlook event has no id");
+  if (!normalized.startAt) {
+    throw new Error("outlook calendar event has no start time");
+  }
+  const providerEventId = outlookProviderEventId(event.id);
+  const rows = await prisma.$queryRaw<MeetingRow[]>`
+    INSERT INTO meetings (
+      id,
+      workspace_id,
+      calendar_source_object_id,
+      provider_event_id,
+      title,
+      description,
+      organizer_email,
+      attendee_emails,
+      location,
+      meeting_url,
+      html_link,
+      start_at,
+      end_at,
+      status,
+      metadata,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${randomUUID()}::uuid,
+      ${workspaceId}::uuid,
+      ${sourceObject.id}::uuid,
+      ${providerEventId},
+      ${normalized.title},
+      ${normalized.description ?? null},
+      ${normalized.organizerEmail ?? null},
+      ${normalized.attendeeEmails},
+      ${normalized.location ?? null},
+      ${normalized.meetingUrl ?? null},
+      ${normalized.htmlLink ?? null},
+      ${new Date(normalized.startAt)},
+      ${normalized.endAt ? new Date(normalized.endAt) : null},
+      ${normalized.status ?? "confirmed"},
+      ${toJson({
+        attendeeNames: normalized.attendeeNames,
+        source: "outlook_calendar",
+        sensitivity: event.sensitivity,
+        showAs: event.showAs,
+      })}::jsonb,
+      now(),
+      now()
+    )
+    ON CONFLICT (workspace_id, provider_event_id) DO UPDATE
+    SET calendar_source_object_id = EXCLUDED.calendar_source_object_id,
+        title = EXCLUDED.title,
+        description = EXCLUDED.description,
+        organizer_email = EXCLUDED.organizer_email,
+        attendee_emails = EXCLUDED.attendee_emails,
+        location = EXCLUDED.location,
+        meeting_url = EXCLUDED.meeting_url,
+        html_link = EXCLUDED.html_link,
+        start_at = EXCLUDED.start_at,
+        end_at = EXCLUDED.end_at,
+        status = EXCLUDED.status,
+        metadata = EXCLUDED.metadata,
+        updated_at = now()
+    RETURNING
+      id::text AS "id",
+      workspace_id::text AS "workspaceId",
+      calendar_source_object_id::text AS "calendarSourceObjectId",
+      provider_event_id AS "providerEventId",
+      title,
+      description,
+      organizer_email AS "organizerEmail",
+      attendee_emails AS "attendeeEmails",
+      location,
+      meeting_url AS "meetingUrl",
+      html_link AS "htmlLink",
+      start_at AS "startAt",
+      end_at AS "endAt",
+      status,
+      prep_status AS "prepStatus",
+      last_prepared_at AS "lastPreparedAt",
+      metadata,
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+  `;
+  return first(rows, "outlook meeting");
+}
+
 async function markMeetingCancelled(workspaceId: string, eventId: string) {
   await prisma.$executeRaw`
     UPDATE meetings
@@ -998,6 +1418,8 @@ async function upsertMeetingPrepAction(
   userId: string,
   sourceObject: SourceObjectRow,
   meeting: MeetingRow,
+  sourceLabel = "Google Calendar",
+  provider = "calendar",
 ) {
   const idempotencyKey = createIdempotencyKey([
     workspaceId,
@@ -1033,13 +1455,13 @@ async function upsertMeetingPrepAction(
       'meeting_prep',
       ${`Prepare for ${meeting.title}`},
       ${`Meeting starts ${meeting.startAt.toISOString()}`},
-      'Google Calendar found an upcoming event. Hermes should prepare it with related Slack context.',
+      ${`${sourceLabel} found an upcoming event. Hermes should prepare it with related Slack context.`},
       'medium',
       'low',
       0.8,
       ${[sourceObject.id]},
       ${toJson({
-        tool: "calendar",
+        tool: provider,
         operation: "prepare_meeting",
         meetingId: meeting.id,
         providerEventId: meeting.providerEventId,
@@ -1048,7 +1470,7 @@ async function upsertMeetingPrepAction(
       'pending_approval',
       ${meeting.startAt},
       ${idempotencyKey},
-      ${toJson({ provider: "calendar", meetingId: meeting.id })}::jsonb,
+      ${toJson({ provider, meetingId: meeting.id })}::jsonb,
       now(),
       now()
     )
@@ -1087,6 +1509,32 @@ function normalizeCalendarEvent(event: CalendarEvent) {
   };
 }
 
+function normalizeOutlookEvent(event: OutlookEvent) {
+  const start = normalizeGraphDateTime(event.start?.dateTime ?? null);
+  const end = normalizeGraphDateTime(event.end?.dateTime ?? null);
+  const description = textBody(event.body?.content) ?? event.bodyPreview ?? null;
+  return {
+    title: event.subject ?? "(untitled meeting)",
+    summary: description ?? event.subject ?? "(untitled meeting)",
+    description,
+    status: event.isCancelled ? "cancelled" : "confirmed",
+    location: event.location?.displayName ?? null,
+    htmlLink: event.webLink ?? null,
+    meetingUrl: event.onlineMeeting?.joinUrl ?? null,
+    startAt: start,
+    endAt: end,
+    organizerEmail: event.organizer?.emailAddress?.address ?? null,
+    attendeeEmails: (event.attendees ?? [])
+      .map((attendee) => attendee.emailAddress?.address)
+      .filter((email): email is string => Boolean(email)),
+    attendeeNames: (event.attendees ?? [])
+      .map((attendee) => attendee.emailAddress?.name)
+      .filter((name): name is string => Boolean(name)),
+    updated: event.lastModifiedDateTime ?? null,
+    created: event.createdDateTime ?? null,
+  };
+}
+
 function googleMeetLink(event: CalendarEvent): string | undefined {
   return event.conferenceData?.entryPoints?.find(
     (entry) => entry.entryPointType === "video" && entry.uri,
@@ -1097,6 +1545,16 @@ function shouldSkipEvent(event: CalendarEvent): boolean {
   if (event.visibility === "private" && !INCLUDE_PRIVATE) return true;
   if (!event.start?.dateTime && !event.start?.date) return true;
   return false;
+}
+
+function shouldSkipOutlookEvent(event: OutlookEvent): boolean {
+  if (event.sensitivity === "private" && !INCLUDE_PRIVATE) return true;
+  if (!event.start?.dateTime) return true;
+  return false;
+}
+
+function outlookProviderEventId(eventId: string): string {
+  return `outlook:${eventId}`;
 }
 
 function buildSlackQueries(meeting: MeetingRow): string[] {
@@ -1369,6 +1827,39 @@ async function googleAccessToken(workspaceId: string): Promise<string> {
   return token.access_token;
 }
 
+async function outlookAccessToken(workspaceId: string): Promise<string> {
+  const clientId = requireEnv("MICROSOFT_CLIENT_ID", "Microsoft");
+  const clientSecret = requireEnv("MICROSOFT_CLIENT_SECRET", "Microsoft");
+  const credential = await getProviderCredential("outlook", workspaceId);
+  const refreshToken = credential?.refreshToken;
+  if (!refreshToken) {
+    if (credential?.accessToken) return credential.accessToken;
+    throw new ClientInputError(400, "Outlook is not connected");
+  }
+  const tenant = process.env.MICROSOFT_TENANT ?? "common";
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  });
+  const token = await microsoftGraph<{ access_token?: string }>(
+    `https://login.microsoftonline.com/${encodeURIComponent(
+      tenant,
+    )}/oauth2/v2.0/token`,
+    "",
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+    },
+  );
+  if (!token.access_token) {
+    throw new Error("Microsoft did not return an access token");
+  }
+  return token.access_token;
+}
+
 async function googleApi<T>(
   url: string,
   accessToken: string,
@@ -1380,6 +1871,22 @@ async function googleApi<T>(
   if (!res.ok) {
     const error = new Error(`Google API request failed with ${res.status}`);
     error.name = `GoogleApi${res.status}`;
+    throw error;
+  }
+  return (await res.json()) as T;
+}
+
+async function microsoftGraph<T>(
+  url: string,
+  accessToken: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
+  const res = await fetch(url, { ...init, headers });
+  if (!res.ok) {
+    const error = new Error(`Microsoft Graph request failed with ${res.status}`);
+    error.name = `MicrosoftGraph${res.status}`;
     throw error;
   }
   return (await res.json()) as T;
@@ -1399,6 +1906,34 @@ function hasGoogleEnv(): boolean {
   return Boolean(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
   );
+}
+
+function hasMicrosoftEnv(): boolean {
+  return Boolean(
+    process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET,
+  );
+}
+
+function normalizeGraphDateTime(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/\.(\d{3})\d+/, ".$1");
+  if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(normalized)) return normalized;
+  return `${normalized}Z`;
+}
+
+function textBody(value: string | undefined): string | null {
+  if (!value) return null;
+  const cleaned = value
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || null;
 }
 
 function parseMcpJson<T>(value: unknown): T {

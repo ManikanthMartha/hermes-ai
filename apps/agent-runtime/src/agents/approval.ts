@@ -38,12 +38,16 @@ const PRETTY_LABEL: Record<string, string> = {
   linear__create_issue: "Create a Linear issue",
   linear__update_status: "Move a Linear issue to a new state",
   gmail__send_message: "Send an email",
+  outlook__send_message: "Send an Outlook email",
 };
 
 /** Tools that expose a "Save as Draft" variant alongside "Send". The UI
  *  reads this via `actions` on the approval request; the runtime forks
  *  via an injected `_action` kwarg when invoking the underlying tool. */
-const DRAFTABLE_TOOLS: ReadonlySet<string> = new Set(["gmail__send_message"]);
+const DRAFTABLE_TOOLS: ReadonlySet<string> = new Set([
+  "gmail__send_message",
+  "outlook__send_message",
+]);
 
 /**
  * Wrap any write tool with an interrupt gate. When the LLM invokes the wrapped

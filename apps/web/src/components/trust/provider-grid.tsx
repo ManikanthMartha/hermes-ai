@@ -22,6 +22,7 @@ import type {
 const PROVIDER_LABELS: Record<string, string> = {
   gmail: "Gmail",
   calendar: "Google Calendar",
+  outlook: "Outlook",
   slack: "Slack",
   github: "GitHub",
   linear: "Linear",
